@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Tuple, Optional
 
 import networkx as nx
 
 from ..graph.knowledge_graph import KnowledgeGraph
+from .semanticist import DayOneAnswers
 
 
 ONBOARDING_FILENAME = "ONBOARDING_BRIEF.md"
@@ -38,7 +39,11 @@ class ArchivistAgent:
 
     # ----- Public API -------------------------------------------------
 
-    def write_codebase_docs(self, kg: KnowledgeGraph) -> Tuple[Path, Path, Path]:
+    def write_codebase_docs(
+        self,
+        kg: KnowledgeGraph,
+        semantic_answers: Optional[DayOneAnswers] = None,
+    ) -> Tuple[Path, Path, Path]:
         """
         Write CODEBASE.md, ONBOARDING_BRIEF.md, and a RECONNAISSANCE.md
         skeleton (if missing). Returns their paths.
@@ -47,7 +52,7 @@ class ArchivistAgent:
         onboarding_path = self.output_dir / ONBOARDING_FILENAME
         recon_path = self.repo_path / RECON_FILENAME
 
-        answers = self._infer_onboarding_answers(kg)
+        answers = semantic_answers or self.infer_onboarding_answers(kg)
 
         codebase_path.write_text(self._render_codebase_md(kg, answers), encoding="utf-8")
         onboarding_path.write_text(self._render_onboarding_md(answers), encoding="utf-8")
@@ -57,6 +62,12 @@ class ArchivistAgent:
 
         return codebase_path, onboarding_path, recon_path
 
+    def infer_onboarding_answers(self, kg: KnowledgeGraph) -> OnboardingAnswers:
+        """
+        Public helper that infers the core Day-One onboarding answers from the graphs.
+        """
+        return self._infer_onboarding_answers(kg)
+
     # ----- Rendering helpers ------------------------------------------
 
     def _render_codebase_md(self, kg: KnowledgeGraph, answers: OnboardingAnswers) -> str:
@@ -64,33 +75,48 @@ class ArchivistAgent:
         lineage_node_count = kg.lineage_graph.number_of_nodes()
         lineage_edge_count = kg.lineage_graph.number_of_edges()
 
-        return "\n".join(
-            [
-                "# CODEBASE Overview",
-                "",
-                f"- Total modules analyzed: **{module_count}**",
-                f"- Total datasets in lineage graph: **{lineage_node_count}**",
-                f"- Total lineage edges: **{lineage_edge_count}**",
-                "",
-                "## High-Level Architecture",
-                "",
-                "- Module graph nodes represent Python modules discovered by the Surveyor agent.",
-                "- Lineage graph nodes represent datasets and transformations discovered by the Hydrologist agent.",
-                "",
-                "## Key Onboarding Answers (Summary)",
-                "",
-                f"- **Primary ingestion path**: {answers.main_ingestion_path}",
-                f"- **Critical datasets**: {answers.critical_datasets}",
-                f"- **Blast radius of failures**: {answers.blast_radius}",
-                f"- **Business logic concentration**: {answers.business_logic_locations}",
-                f"- **Most active files**: {answers.most_active_files}",
-                "",
-                "## Evidence Sources",
-                "",
-                "- Module graph: `.cartography/module_graph.json`",
-                "- Lineage graph: `.cartography/lineage_graph.json`",
-            ]
-        )
+        example_datasets = []
+        for node_id, attrs in list(kg.lineage_graph.nodes(data=True))[:5]:
+            example_datasets.append(f"- `{node_id}` (name={attrs.get('name', node_id)})")
+
+        example_modules = []
+        for node_id, attrs in list(kg.module_graph.nodes(data=True))[:5]:
+            example_modules.append(f"- `{node_id}` (path={attrs.get('path', '')})")
+
+        lines = [
+            "# CODEBASE Overview",
+            "",
+            f"- Total modules analyzed: **{module_count}**",
+            f"- Total datasets in lineage graph: **{lineage_node_count}**",
+            f"- Total lineage edges: **{lineage_edge_count}**",
+            "",
+            "## High-Level Architecture",
+            "",
+            "- Module graph nodes represent Python modules discovered by the Surveyor agent.",
+            "- Lineage graph nodes represent datasets and transformations discovered by the Hydrologist agent.",
+            "",
+            "## Key Onboarding Answers (Summary)",
+            "",
+            f"- **Primary ingestion path**: {answers.main_ingestion_path}",
+            f"- **Critical datasets**: {answers.critical_datasets}",
+            f"- **Blast radius of failures**: {answers.blast_radius}",
+            f"- **Business logic concentration**: {answers.business_logic_locations}",
+            f"- **Most active files**: {answers.most_active_files}",
+            "",
+            "## Example Datasets (Evidence)",
+            "",
+            *(example_datasets or ["- (no datasets discovered)"]),
+            "",
+            "## Example Modules (Evidence)",
+            "",
+            *(example_modules or ["- (no modules discovered)"]),
+            "",
+            "## Evidence Sources",
+            "",
+            "- Module graph: `.cartography/module_graph.json`",
+            "- Lineage graph: `.cartography/lineage_graph.json`",
+        ]
+        return "\n".join(lines)
 
     def _render_onboarding_md(self, answers: OnboardingAnswers) -> str:
         return "\n".join(

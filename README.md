@@ -21,8 +21,33 @@ pip install -e ".[dev]"
 Once installed, a `cartography` CLI is available:
 
 ```bash
+# Run full analysis and write graphs into .cartography/
 cartography analyze /path/to/target/repo --output-dir .cartography --format json
+
+# Run analysis but skip SQL/data lineage for faster iteration
+cartography analyze /path/to/target/repo --output-dir .cartography --skip-lineage
+
+# Run analysis without computing semantic summaries
+cartography analyze /path/to/target/repo --output-dir .cartography --no-semantic
+
+# Generate onboarding docs (markdown files) using existing or freshly computed graphs
+cartography brief /path/to/target/repo --output-dir .cartography --format markdown
+
+# Emit a compact JSON summary of Day-One onboarding answers (useful in CI)
+cartography brief /path/to/target/repo --output-dir .cartography --format json-summary
+
+# Inspect dataset lineage (human-readable)
+cartography lineage /path/to/target/repo fct_orders --output-dir .cartography
+
+# Inspect dataset lineage as JSON (machine-readable)
+cartography lineage /path/to/target/repo fct_orders --output-dir .cartography --json
+
+# Inspect module dependencies (human-readable)
+cartography map /path/to/target/repo some.package.module --output-dir .cartography
+
+# Inspect module dependencies as JSON (machine-readable)
+cartography map /path/to/target/repo some.package.module --output-dir .cartography --json
 ```
 
-The CLI is backed by Typer and delegates to the `Orchestrator` to run the Surveyor and Hydrologist agents.
+The CLI is backed by Typer and delegates to the `Orchestrator` to run the Surveyor and Hydrologist agents, while the Archivist and Navigator agents power onboarding briefs and navigation commands.
 

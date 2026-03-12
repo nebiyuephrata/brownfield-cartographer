@@ -51,3 +51,7 @@ cartography map /path/to/target/repo some.package.module --output-dir .cartograp
 
 The CLI is backed by Typer and delegates to the `Orchestrator` to run the Surveyor and Hydrologist agents, while the Archivist and Navigator agents power onboarding briefs and navigation commands.
 
+## Interim delivery (Week 4)
+
+For the **interim delivery (Thursday March 12)**, see **[docs/INTERIM_DELIVERY.md](docs/INTERIM_DELIVERY.md)** for the required Single PDF Report content (checklist, RECONNAISSANCE, architecture, progress, accuracy, gaps, plan). Use [docs/RECONNAISSANCE_TEMPLATE.md](docs/RECONNAISSANCE_TEMPLATE.md) to draft manual Day-One analysis for your chosen target codebase.
+

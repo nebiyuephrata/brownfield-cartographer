@@ -24,3 +24,40 @@ class LineageEdge(BaseModel):
     evidence: List[Evidence] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
+
+class DagDependencyEdge(BaseModel):
+    """
+    Edge between orchestration tasks (e.g., Airflow or other schedulers).
+    """
+
+    id: str
+    upstream_task_id: str
+    downstream_task_id: str
+    evidence: List[Evidence] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ModuleOwnershipEdge(BaseModel):
+    """
+    Edge connecting a module to a dataset it is primarily responsible for.
+    """
+
+    id: str
+    module_id: str
+    dataset_id: str
+    evidence: List[Evidence] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SimilarityEdge(BaseModel):
+    """
+    Edge capturing semantic or structural similarity between nodes.
+    """
+
+    id: str
+    source_id: str
+    target_id: str
+    score: float = 0.0
+    evidence: List[Evidence] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+

@@ -106,3 +106,51 @@ def analyze_python_module(path: Path) -> ModuleNode:
         evidence=evidence,
     )
 
+
+def analyze_sql_structure(path: Path) -> Evidence:
+    """
+    Lightweight placeholder for SQL static structure analysis.
+
+    For now this simply returns an Evidence object covering the whole file so
+    that future analyzers can attach more detailed metadata without changing
+    call sites.
+    """
+    sql_text = path.read_text(encoding="utf-8", errors="ignore")
+    return Evidence(
+        file_path=str(path),
+        line_start=1,
+        line_end=max(1, sql_text.count("\n") + 1),
+        method="heuristic:sql",
+    )
+
+
+def analyze_yaml_structure(path: Path) -> Evidence:
+    """
+    Lightweight placeholder for YAML static structure analysis.
+
+    Similar to analyze_sql_structure, this currently produces a single Evidence
+    object to anchor future metadata derived from YAML configs.
+    """
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    return Evidence(
+        file_path=str(path),
+        line_start=1,
+        line_end=max(1, text.count("\n") + 1),
+        method="heuristic:yaml",
+    )
+
+
+def analyze_module(path: Path) -> ModuleNode:
+    """
+    Multi-language entry point that routes to the correct parser based on extension.
+
+    Today this focuses on Python modules via analyze_python_module, but the structure
+    allows additional grammars (e.g. JavaScript/TypeScript) to be wired in later
+    without changing call sites.
+    """
+    suffix = path.suffix.lower()
+    if suffix == ".py":
+        return analyze_python_module(path)
+    # Future: wire in additional language analyzers here.
+    return analyze_python_module(path)
+

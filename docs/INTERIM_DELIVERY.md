@@ -6,30 +6,47 @@ This document is the required **Single PDF Report** content for the interim deli
 
 ---
 
+## Feedback: “Are these still missing?”
+
+Review feedback stated: *“Advanced analytics (Surveyor metrics), multi-source lineage merging and queries (Hydrologist), richer multi-language parsing, and some schema completeness are missing.”* Status as of this delivery:
+
+| Feedback item | Status | Details |
+|---------------|--------|---------|
+| **Advanced analytics (Surveyor metrics)** | **Implemented** | Surveyor runs **PageRank**, **git velocity** (configurable window, e.g. 30d), **dead-code candidates** (exported symbols with no importers), and **circular dependency detection** (strongly connected components). Results are attached to module nodes (`pagerank`, `change_velocity_30d`, `is_dead_code_candidate`, `in_cycle`, `cycle_members`). |
+| **Multi-source lineage merging and queries (Hydrologist)** | **Partially** | **Merging:** SQL lineage (sqlglot) + dbt YAML (model metadata, source definitions) are merged into one lineage graph. **Queries:** `blast_radius(kg, dataset_id)`, `find_sources(kg, dataset_id)`, `find_sinks(kg, dataset_id)` are implemented. **Still missing:** Python data-flow lineage (pandas read/write, SQLAlchemy, PySpark), Airflow DAG → lineage edges, notebook (.ipynb) source/sink extraction. |
+| **Richer multi-language parsing** | **Partially** | **Python:** Full tree-sitter AST (or heuristic fallback) for imports, functions, classes. **Router:** `analyze_module(path)` dispatches by extension (`.py` → Python). **Still missing:** JavaScript/TypeScript AST, YAML AST for structural parsing; SQL/YAML currently have placeholders or are handled only in sql_lineage/dag_config, not as “module” AST. |
+| **Schema completeness** | **Implemented** | Four node types (Module, Dataset, Transformation, Dag) and five edge types (ModuleDependency, Lineage, DagDependency, ModuleOwnership, Similarity) with analytical fields (`change_velocity_30d`, `is_dead_code_candidate`, `purpose_statement`, `domain_cluster`) and sensible defaults. Optional: add Pydantic field validators for stricter validation. |
+
+**Summary:** Surveyor metrics and schema completeness are in place. Hydrologist has unified lineage from SQL + dbt and the three query helpers; adding Python/Airflow/notebook sources would make it “full” multi-source. Multi-language is in place for Python with a clear extension point; adding JS/TS/YAML AST would make it “richer.”
+
+---
+
 ## 1. Deliverables Checklist (from ref challenge)
 
-### 1.1 GitHub code (required paths)
+**Path mapping:** The assignment says `src/…`. This repo uses a package layout: **`src/brownfield_cartographer/…`**. So `src/cli.py` → `src/brownfield_cartographer/cli.py`, etc. All required behaviour lives under `src/brownfield_cartographer/`.
 
-| Required | Path | Status / Notes |
-|----------|------|----------------|
-| ✓ | `src/brownfield_cartographer/cli.py` | Entry point; accepts repo path (local or GitHub URL); runs analysis. |
-| ✓ | `src/brownfield_cartographer/orchestrator.py` | Wires Surveyor + Hydrologist in sequence; serializes outputs to `.cartography/`. |
-| ✓ | `src/brownfield_cartographer/models/` | Pydantic schemas: Node types (Module, Dataset, Transformation, Dag), Edge types, Evidence. |
-| ✓ | `src/brownfield_cartographer/analyzers/tree_sitter_analyzer.py` | Multi-language AST parsing; `analyze_module()` routes by extension. |
-| ✓ | `src/brownfield_cartographer/analyzers/sql_lineage.py` | sqlglot-based SQL dependency extraction (FROM/JOIN/CTE, dbt ref()). |
-| ✓ | `src/brownfield_cartographer/analyzers/dag_config_parser.py` | Airflow/dbt YAML config parsing. |
-| ✓ | `src/brownfield_cartographer/agents/surveyor.py` | Module graph; PageRank; git velocity; dead-code candidates. |
-| ✓ | `src/brownfield_cartographer/agents/hydrologist.py` | DataLineageGraph; blast_radius; find_sources / find_sinks. |
-| ✓ | `src/brownfield_cartographer/graph/knowledge_graph.py` | NetworkX wrapper with JSON serialization/deserialization. |
-| ✓ | `pyproject.toml` | Dependencies (no uv lock required for interim). |
-| ✓ | `README.md` | Install and run instructions; `analyze` command documented. |
+### 1.1 GitHub code (required paths) — verified in codebase
 
-### 1.2 Cartography artifacts (at least one target codebase)
+| Required (assignment) | Actual path in repo | In codebase? | Evidence |
+|------------------------|----------------------|--------------|----------|
+| `src/cli.py` — entry point, repo path (local or GitHub URL), runs analysis | `src/brownfield_cartographer/cli.py` | ✓ Yes | `_resolve_repo_path()` accepts local path or GitHub URL (clone); `@app.command()` `analyze(repo_path, ...)` runs analysis; `cartography` script in pyproject points here. |
+| `src/orchestrator.py` — wires Surveyor + Hydrologist, serializes to .cartography/ | `src/brownfield_cartographer/orchestrator.py` | ✓ Yes | `run_surveyor()` then `run_hydrologist()` (and `run_semanticist()`); `save_module_graph()` / `save_lineage_graph()` to `output_dir` (default .cartography/). |
+| `src/models/` — Pydantic schemas (Node, Edge, Graph types) | `src/brownfield_cartographer/models/` | ✓ Yes | `nodes.py`: ModuleNode, DatasetNode, TransformationNode, DagNode, Evidence; `edges.py`: ModuleDependencyEdge, LineageEdge, DagDependencyEdge, ModuleOwnershipEdge, SimilarityEdge. |
+| `src/analyzers/tree_sitter_analyzer.py` — multi-language AST, LanguageRouter | `src/brownfield_cartographer/analyzers/tree_sitter_analyzer.py` | ✓ Yes | `analyze_python_module()` (tree-sitter AST or heuristic); `analyze_module(path)` routes by extension (`.py` → Python). |
+| `src/analyzers/sql_lineage.py` — sqlglot SQL dependency extraction | `src/brownfield_cartographer/analyzers/sql_lineage.py` | ✓ Yes | `extract_lineage_from_sql()` uses sqlglot; FROM/JOIN/CTE; dbt `ref()`; multi-dialect; returns DatasetNodes + LineageEdges. |
+| `src/analyzers/dag_config_parser.py` — Airflow/dbt YAML parsing | `src/brownfield_cartographer/analyzers/dag_config_parser.py` | ✓ Yes | `parse_dbt_project_config()`, `extract_model_metadata()`, `extract_source_definitions()` for dbt YAML; Airflow DAG parsing not implemented. |
+| `src/agents/surveyor.py` — module graph, PageRank, git velocity, dead code | `src/brownfield_cartographer/agents/surveyor.py` | ✓ Yes | Builds module graph; `_attach_analytics()`: PageRank, `change_velocity_30d`, dead-code candidates, SCC cycles. |
+| `src/agents/hydrologist.py` — DataLineageGraph, blast_radius, find_sources/find_sinks | `src/brownfield_cartographer/agents/hydrologist.py` | ✓ Yes | Populates `kg.lineage_graph`; methods `blast_radius()`, `find_sources()`, `find_sinks()`. |
+| `src/graph/knowledge_graph.py` — NetworkX wrapper, serialization | `src/brownfield_cartographer/graph/knowledge_graph.py` | ✓ Yes | `KnowledgeGraph` with `module_graph`/`lineage_graph` (NetworkX DiGraph); `save_*`/`load_from_paths()` JSON. |
+| `pyproject.toml` with locked deps (uv) | `pyproject.toml` + `uv.lock` | ✓ Yes | Dependencies in pyproject.toml; `uv.lock` generated with `uv lock`. |
+| `README.md` — install and run, at least analyze | `README.md` | ✓ Yes | Install via `pip install -e ".[dev]"`; `cartography analyze <repo>` and options documented. |
 
-| Required | Path | Status / Notes |
-|----------|------|----------------|
-| ✓ | `.cartography/module_graph.json` | Present when analysis has been run (e.g. on this repo or jaffle_shop). |
-| ✓ | `.cartography/lineage_graph.json` | Present; partial SQL lineage via sqlglot is acceptable for interim. |
+### 1.2 Cartography artifacts (at least one target codebase) — verified on disk
+
+| Required | Path | In repo? | Notes |
+|----------|------|----------|--------|
+| Module graph JSON | `.cartography/module_graph.json` | ✓ Yes | Present (e.g. from running analyze on this repo). |
+| Lineage graph JSON | `.cartography/lineage_graph.json` | ✓ Yes | Present; partial SQL lineage via sqlglot is acceptable for interim. |
 
 ---
 

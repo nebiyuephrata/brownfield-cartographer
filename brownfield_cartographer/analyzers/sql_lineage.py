@@ -5,8 +5,12 @@ from typing import List, Tuple
 import logging
 import re
 
-import sqlglot
-from sqlglot import exp
+try:
+    import sqlglot
+    from sqlglot import exp
+except Exception:  # pragma: no cover
+    sqlglot = None
+    exp = None
 
 from ..models.edges import LineageEdge
 from ..models.nodes import DatasetNode, Evidence
@@ -15,11 +19,13 @@ from ..models.nodes import DatasetNode, Evidence
 logger = logging.getLogger(__name__)
 
 
-def _parse_statements(sql_text: str) -> List[exp.Expression] | None:
+def _parse_statements(sql_text: str):
     """
     Try parsing the SQL text across a few common dialects.
     Returns None if unparseable (caller should log and skip gracefully).
     """
+    if sqlglot is None:
+        return [sql_text]
     dialects: List[str | None] = [None, "ansi", "snowflake", "bigquery"]
     last_error: Exception | None = None
     for dialect in dialects:
@@ -27,7 +33,7 @@ def _parse_statements(sql_text: str) -> List[exp.Expression] | None:
             if dialect is None:
                 return list(sqlglot.parse(sql_text))
             return list(sqlglot.parse(sql_text, read=dialect))
-        except sqlglot.errors.ParseError as exc:
+        except Exception as exc:
             last_error = exc
             continue
     logger.warning("Unparseable SQL; skipping lineage extraction: %s", last_error)
@@ -69,17 +75,21 @@ def extract_lineage_from_sql(path: Path) -> Tuple[List[DatasetNode], List[Lineag
     # Compute simple stats: total number of statements and tables referenced.
     all_tables: List[str] = []
     write_targets: List[str] = []
-    for stmt in statements:
-        # Track read tables from FROM/JOIN/CTEs/subqueries via Table nodes.
-        for table in stmt.find_all(exp.Table):
-            if table.name:
-                all_tables.append(table.name)
+    if sqlglot is None:
+        refs = re.findall(r"(?:from|join)\s+([a-zA-Z_][\w.]*)", sql_text, flags=re.IGNORECASE)
+        all_tables.extend(refs)
+    else:
+        for stmt in statements:
+            # Track read tables from FROM/JOIN/CTEs/subqueries via Table nodes.
+            for table in stmt.find_all(exp.Table):
+                if table.name:
+                    all_tables.append(table.name)
 
-        # Track simple write targets for INSERT/CREATE TABLE AS / MERGE.
-        if isinstance(stmt, (exp.Insert, exp.Update, exp.Merge, exp.Delete, exp.Create)):
-            target = getattr(stmt, "this", None)
-            if isinstance(target, exp.Table) and target.name:
-                write_targets.append(target.name)
+            # Track simple write targets for INSERT/CREATE TABLE AS / MERGE.
+            if isinstance(stmt, (exp.Insert, exp.Update, exp.Merge, exp.Delete, exp.Create)):
+                target = getattr(stmt, "this", None)
+                if isinstance(target, exp.Table) and target.name:
+                    write_targets.append(target.name)
 
     dataset_nodes = {}
 

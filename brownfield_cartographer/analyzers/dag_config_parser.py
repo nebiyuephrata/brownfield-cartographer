@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import yaml
+try:
+    import yaml
+except Exception:  # pragma: no cover
+    yaml = None
 
 
 def parse_dbt_project_config(path: Path) -> Dict[str, Any]:
@@ -15,10 +18,12 @@ def parse_dbt_project_config(path: Path) -> Dict[str, Any]:
     """
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
+        if yaml is None:
+            return {}
         return yaml.safe_load(text) or {}
     except FileNotFoundError:
         return {}
-    except yaml.YAMLError:
+    except Exception:
         return {}
 
 

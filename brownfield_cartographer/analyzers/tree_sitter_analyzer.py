@@ -3,15 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from tree_sitter import Language, Parser
+try:
+    from tree_sitter import Language, Parser
+except Exception:  # pragma: no cover
+    Language = None
+    Parser = None
 
 from ..models.nodes import Evidence, ModuleNode
 
 
-_PY_LANGUAGE: Language | None = None
+_PY_LANGUAGE = None
 
 
-def _get_python_language() -> Language | None:
+def _get_python_language():
     """
     Best-effort loader for the tree-sitter Python language.
 
@@ -68,6 +72,8 @@ def analyze_python_module(path: Path) -> ModuleNode:
                 name = stripped[len("class ") :].split("(")[0].split(":")[0]
                 classes.append(name)
     else:  # pragma: no cover - depends on external language library
+        if Parser is None:
+            language = None
         parser = Parser()
         parser.set_language(language)
         tree = parser.parse(source.encode("utf8"))

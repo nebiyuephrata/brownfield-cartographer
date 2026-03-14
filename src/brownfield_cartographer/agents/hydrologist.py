@@ -9,6 +9,7 @@ import networkx as nx
 logger = logging.getLogger(__name__)
 
 from ..analyzers.sql_lineage import extract_lineage_from_sql
+from ..analyzers.python_dataflow import extract_lineage_from_python
 from ..analyzers.dag_config_parser import (
     extract_model_metadata,
     extract_source_definitions,
@@ -39,6 +40,9 @@ class HydrologistAgent:
         if matched:
             return matched
         return list(repo_path.rglob("*.sql"))
+
+    def _iter_python_files(self, repo_path: Path) -> Sequence[Path]:
+        return [p for p in repo_path.rglob("**/*.py") if "__pycache__" not in str(p)]
 
     def _load_dbt_metadata(self, repo_path: Path) -> Dict[str, Dict]:
         """
@@ -123,7 +127,21 @@ class HydrologistAgent:
                     edge.transformation_id = transformation_id
                 kg.add_lineage_edge(edge)
 
-        # After all SQL files, enrich any upstream table nodes with source definitions.
+        # 2) Python dataflow lineage
+        for py_path in self._iter_python_files(repo_path):
+            try:
+                dataset_nodes, lineage_edges = extract_lineage_from_python(py_path)
+            except Exception as exc:
+                logger.warning("Skipping PY file %s: %s", py_path, exc)
+                continue
+
+            for node in dataset_nodes:
+                if isinstance(node, DatasetNode):
+                    kg.add_dataset_node(node)
+            for edge in lineage_edges:
+                kg.add_lineage_edge(edge)
+
+        # After all lineage extraction, enrich any upstream table nodes with source definitions.
         self._enrich_with_sources(repo_path, kg)
 
     # ---- Lineage query helpers ---------------------------------------------

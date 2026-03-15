@@ -9,6 +9,7 @@ from .agents.hydrologist import HydrologistAgent
 from .agents.semanticist import SemanticistAgent
 from .agents.surveyor import SurveyorAgent
 from .graph.knowledge_graph import KnowledgeGraph
+from .trace import TraceLogger
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ class Orchestrator:
         )
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.kg = KnowledgeGraph()
+        self.trace = TraceLogger(self.output_dir / "cartography_trace.jsonl")
 
     @property
     def repo_path(self) -> Path:
@@ -69,26 +71,41 @@ class Orchestrator:
     def run_surveyor(self) -> None:
         if not self.config.run_surveyor:
             return
+        self.trace.log("surveyor_start", repo=str(self.repo_path))
         logger.info("Running Surveyor (module graph)...")
         surveyor = SurveyorAgent(ignore_globs=self.config.ignore_globs)
         surveyor.run(self.repo_path, self.kg)
         module_graph_path = self.output_dir / MODULE_GRAPH_FILENAME
         self.kg.save_module_graph(module_graph_path)
+        self.trace.log(
+            "surveyor_complete",
+            module_nodes=self.kg.module_graph.number_of_nodes(),
+            module_edges=self.kg.module_graph.number_of_edges(),
+            output=str(module_graph_path),
+        )
         logger.info("Module graph written to %s", module_graph_path)
 
     def run_hydrologist(self) -> None:
         if not self.config.run_hydrologist:
             return
+        self.trace.log("hydrologist_start", repo=str(self.repo_path))
         logger.info("Running Hydrologist (lineage graph)...")
         hydrologist = HydrologistAgent()
         hydrologist.run(self.repo_path, self.kg)
         lineage_graph_path = self.output_dir / LINEAGE_GRAPH_FILENAME
         self.kg.save_lineage_graph(lineage_graph_path)
+        self.trace.log(
+            "hydrologist_complete",
+            lineage_nodes=self.kg.lineage_graph.number_of_nodes(),
+            lineage_edges=self.kg.lineage_graph.number_of_edges(),
+            output=str(lineage_graph_path),
+        )
         logger.info("Lineage graph written to %s", lineage_graph_path)
 
     def run_semanticist(self) -> None:
         if not self.config.enable_semanticist:
             return
+        self.trace.log("semanticist_start")
         logger.info("Running Semanticist (summaries)...")
         semanticist = SemanticistAgent()
         semanticist.run(self.kg)
@@ -96,6 +113,7 @@ class Orchestrator:
         lineage_graph_path = self.output_dir / LINEAGE_GRAPH_FILENAME
         self.kg.save_module_graph(module_graph_path)
         self.kg.save_lineage_graph(lineage_graph_path)
+        self.trace.log("semanticist_complete")
 
     def run_all(self) -> None:
         """
@@ -106,4 +124,3 @@ class Orchestrator:
         self.run_surveyor()
         self.run_hydrologist()
         self.run_semanticist()
-

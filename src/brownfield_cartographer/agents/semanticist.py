@@ -35,6 +35,16 @@ class SemanticistAgent:
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         self.openrouter_model = os.getenv("OPENROUTER_MODEL")
         self.openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        self.ollama_model = os.getenv("OLLAMA_MODEL")
+        self.ollama_base_url = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+        try:
+            self.ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "180"))
+        except ValueError:
+            self.ollama_timeout = 180
+        try:
+            self.max_items = int(os.getenv("SEMANTIC_MAX_ITEMS", "200"))
+        except ValueError:
+            self.max_items = 200
 
     def _openrouter_chat(self, prompt: str) -> str:
         if not self.openrouter_api_key or not self.openrouter_model:
@@ -57,10 +67,30 @@ class SemanticistAgent:
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=self.ollama_timeout) as resp:
             raw = resp.read().decode("utf-8")
         parsed = json.loads(raw)
         return parsed["choices"][0]["message"]["content"].strip()
+
+    def _ollama_generate(self, prompt: str) -> str:
+        if not self.ollama_model:
+            raise RuntimeError("OLLAMA_MODEL not set")
+        payload = {
+            "model": self.ollama_model,
+            "prompt": prompt,
+            "stream": False,
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.ollama_base_url}/api/generate",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            raw = resp.read().decode("utf-8")
+        parsed = json.loads(raw)
+        return parsed.get("response", "").strip()
 
     def _llm_module_summary(self, node_id: str, attrs: Dict) -> str:
         functions = attrs.get("functions", [])[:20]
@@ -74,6 +104,8 @@ class SemanticistAgent:
             f"Classes: {classes}\n"
             f"Imports: {imports}\n"
         )
+        if self.ollama_model:
+            return self._ollama_generate(prompt)
         return self._openrouter_chat(prompt)
 
     def _llm_dataset_summary(self, node_id: str, attrs: Dict, upstream: List[str], downstream: List[str]) -> str:
@@ -85,19 +117,23 @@ class SemanticistAgent:
             f"Upstream: {upstream[:20]}\n"
             f"Downstream: {downstream[:20]}\n"
         )
+        if self.ollama_model:
+            return self._ollama_generate(prompt)
         return self._openrouter_chat(prompt)
 
     def summarize_modules(self, kg: KnowledgeGraph) -> Dict[str, NodeSummary]:
         summaries: Dict[str, NodeSummary] = {}
         g = kg.module_graph
 
-        for node_id, attrs in g.nodes(data=True):
+        for idx, (node_id, attrs) in enumerate(g.nodes(data=True)):
+            if idx >= self.max_items:
+                break
             imports: List[str] = attrs.get("imports", [])
             functions: List[str] = attrs.get("functions", [])
             classes: List[str] = attrs.get("classes", [])
 
             try:
-                if self.openrouter_api_key and self.openrouter_model:
+                if self.ollama_model or (self.openrouter_api_key and self.openrouter_model):
                     text = self._llm_module_summary(node_id, attrs)
                 else:
                     text = (
@@ -105,7 +141,7 @@ class SemanticistAgent:
                         f"{len(functions)} functions and {len(classes)} classes, "
                         f"and imports {len(imports)} modules."
                     )
-            except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, KeyError, ValueError):
+            except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, KeyError, ValueError, TimeoutError):
                 text = (
                     f"Module `{node_id}` defines "
                     f"{len(functions)} functions and {len(classes)} classes, "
@@ -116,7 +152,12 @@ class SemanticistAgent:
 
             metadata = attrs.get("metadata") or {}
             metadata["semantic_summary"] = text
-            metadata["semantic_provider"] = "openrouter" if self.openrouter_api_key and self.openrouter_model else "heuristic"
+            if self.ollama_model:
+                metadata["semantic_provider"] = "ollama"
+            elif self.openrouter_api_key and self.openrouter_model:
+                metadata["semantic_provider"] = "openrouter"
+            else:
+                metadata["semantic_provider"] = "heuristic"
             g.nodes[node_id]["metadata"] = metadata
 
         return summaries
@@ -125,14 +166,16 @@ class SemanticistAgent:
         summaries: Dict[str, NodeSummary] = {}
         g = kg.lineage_graph
 
-        for node_id, attrs in g.nodes(data=True):
+        for idx, (node_id, attrs) in enumerate(g.nodes(data=True)):
+            if idx >= self.max_items:
+                break
             node_type = attrs.get("type", "unknown")
 
             upstream = list(g.predecessors(node_id))
             downstream = list(g.successors(node_id))
 
             try:
-                if self.openrouter_api_key and self.openrouter_model:
+                if self.ollama_model or (self.openrouter_api_key and self.openrouter_model):
                     text = self._llm_dataset_summary(node_id, attrs, upstream, downstream)
                 else:
                     text = (
@@ -140,7 +183,7 @@ class SemanticistAgent:
                         f"(type={node_type}) has {len(upstream)} upstream "
                         f"and {len(downstream)} downstream dependencies."
                     )
-            except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, KeyError, ValueError):
+            except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, KeyError, ValueError, TimeoutError):
                 text = (
                     f"Dataset `{attrs.get('name', node_id)}` "
                     f"(type={node_type}) has {len(upstream)} upstream "
@@ -151,7 +194,12 @@ class SemanticistAgent:
 
             metadata = attrs.get("metadata") or {}
             metadata["semantic_summary"] = text
-            metadata["semantic_provider"] = "openrouter" if self.openrouter_api_key and self.openrouter_model else "heuristic"
+            if self.ollama_model:
+                metadata["semantic_provider"] = "ollama"
+            elif self.openrouter_api_key and self.openrouter_model:
+                metadata["semantic_provider"] = "openrouter"
+            else:
+                metadata["semantic_provider"] = "heuristic"
             g.nodes[node_id]["metadata"] = metadata
 
         return summaries

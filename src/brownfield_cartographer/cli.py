@@ -14,6 +14,7 @@ from .agents.archivist import ArchivistAgent
 from .agents.navigator import NavigatorAgent
 from .graph.knowledge_graph import KnowledgeGraph
 from .orchestrator import Orchestrator
+from .trace import TraceLogger
 
 
 app = typer.Typer(help="Brownfield Cartographer CLI.")
@@ -247,7 +248,14 @@ def analyze(
             module_graph_path=out_dir / "module_graph.json",
             lineage_graph_path=out_dir / "lineage_graph.json",
         )
+        trace = TraceLogger(out_dir / "cartography_trace.jsonl")
+        trace.log("archivist_start", output_dir=str(out_dir))
         ArchivistAgent(repo_path=repo, output_dir=out_dir).write_codebase_docs(kg)
+        trace.log(
+            "archivist_complete",
+            codebase=str(out_dir / "CODEBASE.md"),
+            onboarding=str(out_dir / "ONBOARDING_BRIEF.md"),
+        )
         typer.echo(f"Docs generated: {out_dir / 'CODEBASE.md'}")
 
     typer.echo(f"Analysis complete. Artifacts written to: {out_dir}")
@@ -635,6 +643,93 @@ def blast_command(
             ev = _format_evidence(attrs.get("evidence"), repo)
             reason = attrs.get("reason") or ""
             extra = f" reason={reason}" if reason else ""
+            typer.echo(f"- {u} -> {v}{extra}" + (f"  ({ev})" if ev else ""))
+            shown += 1
+            if shown >= 200:
+                typer.echo("- ... (truncated)")
+                break
+
+
+@app.command("blast-lineage")
+def blast_lineage_command(
+    repo_path: str = typer.Argument(..., help="Path to the target repository."),
+    dataset_id: str = typer.Argument(..., help="Dataset id or name to assess downstream impact for."),
+    output_dir: str = typer.Option(
+        ".cartography",
+        "--output-dir",
+        "-o",
+        help="Directory where analysis artifacts will be read from or written to.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit blast radius information as JSON instead of human-readable text.",
+    ),
+    max_nodes: int = typer.Option(
+        400,
+        "--max-nodes",
+        help="Safety limit on nodes visited during traversal.",
+    ),
+    evidence: bool = typer.Option(
+        False,
+        "--evidence",
+        help="Include file/line evidence and operation type when available.",
+    ),
+) -> None:
+    """
+    Compute dataset blast radius (downstream impact) in the lineage graph.
+    """
+    repo, out_dir = _resolve_paths(repo_path, output_dir)
+    kg = _ensure_graphs(repo, out_dir)
+    if dataset_id not in kg.lineage_graph and ":" not in dataset_id:
+        resolved = kg.get_dataset_by_name(dataset_id)
+        if resolved:
+            dataset_id = resolved
+
+    depths = _bfs_nodes(kg.lineage_graph, dataset_id, "down", max_nodes=max_nodes)
+    downstream = sorted([n for n in depths if n != dataset_id], key=lambda n: (depths[n], n))
+
+    if json_output:
+        nodeset = set([dataset_id, *downstream])
+        payload_edges = []
+        for u, v, attrs in kg.lineage_graph.edges(data=True):
+            if u in nodeset and v in nodeset:
+                payload_edges.append(
+                    {
+                        "source": u,
+                        "target": v,
+                        "transformation_id": attrs.get("transformation_id"),
+                        "metadata": attrs.get("metadata") or {},
+                        "evidence": attrs.get("evidence") or [],
+                    }
+                )
+        typer.echo(
+            json.dumps(
+                {"target": dataset_id, "downstream": downstream, "edges": payload_edges},
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+
+    typer.echo(f"Dataset: {dataset_id}")
+    typer.echo("")
+    typer.echo(f"Downstream Impact ({len(downstream)}) [transitive]:")
+    for node in downstream:
+        typer.echo(f"- {node}")
+
+    if evidence:
+        typer.echo("")
+        typer.echo("Evidence (edges):")
+        nodeset = set([dataset_id, *downstream])
+        shown = 0
+        for u, v, attrs in kg.lineage_graph.edges(data=True):
+            if u not in nodeset or v not in nodeset:
+                continue
+            ev = _format_evidence(attrs.get("evidence"), repo)
+            meta = attrs.get("metadata") or {}
+            op = meta.get("operation") or ""
+            extra = f" op={op}" if op else ""
             typer.echo(f"- {u} -> {v}{extra}" + (f"  ({ev})" if ev else ""))
             shown += 1
             if shown >= 200:

@@ -56,7 +56,9 @@ class ArchivistAgent:
         answers = semantic_answers or self.infer_onboarding_answers(kg)
 
         codebase_path.write_text(self._render_codebase_md(kg, answers), encoding="utf-8")
-        onboarding_path.write_text(self._render_onboarding_md(answers), encoding="utf-8")
+        onboarding_text = self._render_onboarding_md(answers)
+        onboarding_text = onboarding_text + "\n" + "\n".join(self._evidence_section(kg)) + "\n"
+        onboarding_path.write_text(onboarding_text, encoding="utf-8")
 
         if not recon_path.exists():
             recon_path.write_text(self._render_recon_skeleton(), encoding="utf-8")
@@ -172,9 +174,52 @@ class ArchivistAgent:
                 "## 5. Most Frequently Changing Files",
                 answers.most_active_files,
                 "",
-                "> All statements above are derived from the module and lineage graphs; see `.cartography/*.json` for machine-readable evidence.",
+                "> Evidence samples are attached below.",
             ]
         )
+
+    def _format_evidence(self, evidence_list: List) -> str:
+        if not evidence_list:
+            return ""
+        ev = evidence_list[0]
+        file_path = ev.get("file_path", "")
+        line_start = ev.get("line_start")
+        line_end = ev.get("line_end")
+        method = ev.get("method")
+        loc = f"{file_path}:{line_start}-{line_end}" if line_start and line_end else file_path
+        return f"{loc}" + (f" ({method})" if method else "")
+
+    def _evidence_section(self, kg: KnowledgeGraph) -> List[str]:
+        lines: List[str] = ["", "## Evidence (Sampled)"]
+        # Sample datasets
+        lines.append("")
+        lines.append("### Dataset Evidence")
+        count = 0
+        for node_id, attrs in kg.lineage_graph.nodes(data=True):
+            ev = self._format_evidence(attrs.get("evidence") or [])
+            if ev:
+                lines.append(f"- `{attrs.get('name', node_id)}`: {ev}")
+                count += 1
+            if count >= 5:
+                break
+        if count == 0:
+            lines.append("- (no dataset evidence available)")
+
+        # Sample modules
+        lines.append("")
+        lines.append("### Module Evidence")
+        count = 0
+        for node_id, attrs in kg.module_graph.nodes(data=True):
+            ev = self._format_evidence(attrs.get("evidence") or [])
+            if ev:
+                lines.append(f"- `{node_id}`: {ev}")
+                count += 1
+            if count >= 5:
+                break
+        if count == 0:
+            lines.append("- (no module evidence available)")
+
+        return lines
 
     def _render_recon_skeleton(self) -> str:
         return "\n".join(

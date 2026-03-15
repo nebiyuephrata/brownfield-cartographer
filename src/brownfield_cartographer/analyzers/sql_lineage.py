@@ -19,6 +19,31 @@ from ..models.nodes import DatasetNode, Evidence
 logger = logging.getLogger(__name__)
 
 
+_JINJA_BLOCK_RE = re.compile(r"\{%-?[\s\S]*?-?%\}")
+_JINJA_COMMENT_RE = re.compile(r"\{#[\s\S]*?#\}")
+_JINJA_REF_RE = re.compile(r"\{\{\s*ref\(\s*['\"]([^'\"]+)['\"]\s*\)\s*\}\}")
+_JINJA_SOURCE_RE = re.compile(
+    r"\{\{\s*source\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)\s*\}\}"
+)
+_JINJA_EXPR_RE = re.compile(r"\{\{[\s\S]*?\}\}")
+
+
+def _strip_jinja(sql_text: str) -> str:
+    """
+    Remove or simplify dbt/Jinja templating so sqlglot can parse.
+    - strips {% ... %} blocks and {# ... #} comments
+    - replaces {{ ref('model') }} with model
+    - replaces {{ source('schema','table') }} with schema.table
+    """
+    text = _JINJA_BLOCK_RE.sub(" ", sql_text)
+    text = _JINJA_COMMENT_RE.sub(" ", text)
+    text = _JINJA_REF_RE.sub(r"\1", text)
+    text = _JINJA_SOURCE_RE.sub(r"\1.\2", text)
+    # Replace any remaining Jinja expressions with a neutral token.
+    text = _JINJA_EXPR_RE.sub("jinja_var", text)
+    return text
+
+
 def _parse_statements(sql_text: str):
     """
     Try parsing the SQL text across a few common dialects.
@@ -58,6 +83,7 @@ def extract_lineage_from_sql(path: Path) -> Tuple[List[DatasetNode], List[Lineag
     - Attach simple lineage statistics into DatasetNode.metadata.
     """
     sql_text = path.read_text(encoding="utf-8", errors="ignore")
+    sql_text = _strip_jinja(sql_text)
     evidence = Evidence(
         file_path=str(path),
         line_start=1,
@@ -78,6 +104,14 @@ def extract_lineage_from_sql(path: Path) -> Tuple[List[DatasetNode], List[Lineag
     if sqlglot is None:
         refs = re.findall(r"(?:from|join)\s+([a-zA-Z_][\w.]*)", sql_text, flags=re.IGNORECASE)
         all_tables.extend(refs)
+        # Best-effort write target detection so migrations/DDL still produce lineage.
+        write_targets.extend(
+            re.findall(
+                r"(?:create\s+table\s+(?:if\s+not\s+exists\s+)?|insert\s+into\s+|merge\s+into\s+|update\s+|delete\s+from\s+)([a-zA-Z_][\w.]*)",
+                sql_text,
+                flags=re.IGNORECASE,
+            )
+        )
     else:
         for stmt in statements:
             # Track read tables from FROM/JOIN/CTEs/subqueries via Table nodes.
@@ -179,4 +213,3 @@ def extract_lineage_from_sql(path: Path) -> Tuple[List[DatasetNode], List[Lineag
         )
 
     return list(dataset_nodes.values()), lineage_edges
-

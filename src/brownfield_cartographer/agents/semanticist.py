@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, List, Protocol, runtime_checkable
+import json
+import os
+import urllib.request
+import urllib.error
 
 import networkx as nx
 
@@ -27,6 +31,62 @@ class SemanticistAgent:
     client can later refine or replace them.
     """
 
+    def __init__(self) -> None:
+        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+        self.openrouter_model = os.getenv("OPENROUTER_MODEL")
+        self.openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+    def _openrouter_chat(self, prompt: str) -> str:
+        if not self.openrouter_api_key or not self.openrouter_model:
+            raise RuntimeError("OPENROUTER_API_KEY/OPENROUTER_MODEL not set")
+
+        payload = {
+            "model": self.openrouter_model,
+            "messages": [
+                {"role": "system", "content": "You are a senior software engineer. Answer concisely."},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.openrouter_base_url}/chat/completions",
+            data=data,
+            headers={
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            raw = resp.read().decode("utf-8")
+        parsed = json.loads(raw)
+        return parsed["choices"][0]["message"]["content"].strip()
+
+    def _llm_module_summary(self, node_id: str, attrs: Dict) -> str:
+        functions = attrs.get("functions", [])[:20]
+        classes = attrs.get("classes", [])[:20]
+        imports = attrs.get("imports", [])[:20]
+        prompt = (
+            "Summarize the purpose of this module based on code structure only. "
+            "Ignore docstrings and comments. Be specific, 1-2 sentences.\n\n"
+            f"Module: {node_id}\n"
+            f"Functions: {functions}\n"
+            f"Classes: {classes}\n"
+            f"Imports: {imports}\n"
+        )
+        return self._openrouter_chat(prompt)
+
+    def _llm_dataset_summary(self, node_id: str, attrs: Dict, upstream: List[str], downstream: List[str]) -> str:
+        prompt = (
+            "Summarize this dataset’s role in the lineage graph in 1-2 sentences. "
+            "Focus on data flow and dependencies.\n\n"
+            f"Dataset: {attrs.get('name', node_id)}\n"
+            f"Type: {attrs.get('type', 'unknown')}\n"
+            f"Upstream: {upstream[:20]}\n"
+            f"Downstream: {downstream[:20]}\n"
+        )
+        return self._openrouter_chat(prompt)
+
     def summarize_modules(self, kg: KnowledgeGraph) -> Dict[str, NodeSummary]:
         summaries: Dict[str, NodeSummary] = {}
         g = kg.module_graph
@@ -36,16 +96,27 @@ class SemanticistAgent:
             functions: List[str] = attrs.get("functions", [])
             classes: List[str] = attrs.get("classes", [])
 
-            text = (
-                f"Module `{node_id}` defines "
-                f"{len(functions)} functions and {len(classes)} classes, "
-                f"and imports {len(imports)} modules."
-            )
+            try:
+                if self.openrouter_api_key and self.openrouter_model:
+                    text = self._llm_module_summary(node_id, attrs)
+                else:
+                    text = (
+                        f"Module `{node_id}` defines "
+                        f"{len(functions)} functions and {len(classes)} classes, "
+                        f"and imports {len(imports)} modules."
+                    )
+            except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, KeyError, ValueError):
+                text = (
+                    f"Module `{node_id}` defines "
+                    f"{len(functions)} functions and {len(classes)} classes, "
+                    f"and imports {len(imports)} modules."
+                )
 
             summaries[node_id] = NodeSummary(id=node_id, kind="module", summary=text)
 
             metadata = attrs.get("metadata") or {}
             metadata["semantic_summary"] = text
+            metadata["semantic_provider"] = "openrouter" if self.openrouter_api_key and self.openrouter_model else "heuristic"
             g.nodes[node_id]["metadata"] = metadata
 
         return summaries
@@ -60,16 +131,27 @@ class SemanticistAgent:
             upstream = list(g.predecessors(node_id))
             downstream = list(g.successors(node_id))
 
-            text = (
-                f"Dataset `{attrs.get('name', node_id)}` "
-                f"(type={node_type}) has {len(upstream)} upstream "
-                f"and {len(downstream)} downstream dependencies."
-            )
+            try:
+                if self.openrouter_api_key and self.openrouter_model:
+                    text = self._llm_dataset_summary(node_id, attrs, upstream, downstream)
+                else:
+                    text = (
+                        f"Dataset `{attrs.get('name', node_id)}` "
+                        f"(type={node_type}) has {len(upstream)} upstream "
+                        f"and {len(downstream)} downstream dependencies."
+                    )
+            except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError, KeyError, ValueError):
+                text = (
+                    f"Dataset `{attrs.get('name', node_id)}` "
+                    f"(type={node_type}) has {len(upstream)} upstream "
+                    f"and {len(downstream)} downstream dependencies."
+                )
 
             summaries[node_id] = NodeSummary(id=node_id, kind="dataset", summary=text)
 
             metadata = attrs.get("metadata") or {}
             metadata["semantic_summary"] = text
+            metadata["semantic_provider"] = "openrouter" if self.openrouter_api_key and self.openrouter_model else "heuristic"
             g.nodes[node_id]["metadata"] = metadata
 
         return summaries
@@ -208,4 +290,3 @@ class DayOneSemanticist(SemanticistAgent):
             business_logic_locations=logic,
             most_active_files=active,
         )
-

@@ -50,7 +50,8 @@ class ArchivistAgent:
         """
         codebase_path = self.output_dir / CODEBASE_FILENAME
         onboarding_path = self.output_dir / ONBOARDING_FILENAME
-        recon_path = self.repo_path / RECON_FILENAME
+        # Keep all artifacts in `output_dir` so analyzing a read-only target repo works.
+        recon_path = self.output_dir / RECON_FILENAME
 
         answers = semantic_answers or self.infer_onboarding_answers(kg)
 
@@ -75,6 +76,11 @@ class ArchivistAgent:
         lineage_node_count = kg.lineage_graph.number_of_nodes()
         lineage_edge_count = kg.lineage_graph.number_of_edges()
 
+        def _truncate(text: str, max_len: int = 180) -> str:
+            if len(text) <= max_len:
+                return text
+            return text[: max_len - 3].rstrip() + "..."
+
         example_datasets = []
         for node_id, attrs in list(kg.lineage_graph.nodes(data=True))[:5]:
             example_datasets.append(f"- `{node_id}` (name={attrs.get('name', node_id)})")
@@ -82,6 +88,26 @@ class ArchivistAgent:
         example_modules = []
         for node_id, attrs in list(kg.module_graph.nodes(data=True))[:5]:
             example_modules.append(f"- `{node_id}` (path={attrs.get('path', '')})")
+
+        module_purpose = []
+        for node_id, attrs in list(kg.module_graph.nodes(data=True))[:10]:
+            meta = attrs.get("metadata") or {}
+            summary = meta.get("semantic_summary")
+            provider = meta.get("semantic_provider")
+            if summary:
+                suffix = f" [{provider}]" if provider else ""
+                module_purpose.append(f"- `{node_id}`: {_truncate(summary)}{suffix}")
+
+        dataset_purpose = []
+        for node_id, attrs in list(kg.lineage_graph.nodes(data=True))[:10]:
+            meta = attrs.get("metadata") or {}
+            summary = meta.get("semantic_summary")
+            provider = meta.get("semantic_provider")
+            if summary:
+                suffix = f" [{provider}]" if provider else ""
+                dataset_purpose.append(
+                    f"- `{attrs.get('name', node_id)}`: {_truncate(summary)}{suffix}"
+                )
 
         lines = [
             "# CODEBASE Overview",
@@ -110,6 +136,14 @@ class ArchivistAgent:
             "## Example Modules (Evidence)",
             "",
             *(example_modules or ["- (no modules discovered)"]),
+            "",
+            "## Module Purpose Index",
+            "",
+            *(module_purpose or ["- (no semantic summaries found)"]),
+            "",
+            "## Dataset Purpose Index",
+            "",
+            *(dataset_purpose or ["- (no semantic summaries found)"]),
             "",
             "## Evidence Sources",
             "",
@@ -272,4 +306,3 @@ class ArchivistAgent:
 
         parts = [f"{m} ({c} commits in recent window)" for m, c in top]
         return "Most active modules by recent git commits: " + ", ".join(parts) + "."
-

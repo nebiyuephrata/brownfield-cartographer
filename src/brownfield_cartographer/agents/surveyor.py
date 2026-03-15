@@ -134,6 +134,14 @@ class SurveyorAgent:
                 logger.warning("Skipping %s: %s", path, exc)
                 continue
 
+            # Prefer stable, repo-relative module ids (the analyzer may return a
+            # filesystem-root-relative id which makes graphs noisy and non-portable).
+            try:
+                rel = path.relative_to(repo_path)
+                module_node.id = str(rel).replace("/", ".").removesuffix(".py")
+            except Exception:
+                pass
+
             commit_count = self._recent_commit_count(repo_path, path)
             if commit_count > 0:
                 metadata = dict(module_node.metadata)
@@ -152,4 +160,3 @@ class SurveyorAgent:
                 kg.add_module_edge(edge)
 
         self._attach_analytics(kg)
-

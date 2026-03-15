@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -47,6 +48,13 @@ PYSPARK_WRITES = {
     "json": "spark_write_json",
     "save": "spark_write_save",
 }
+
+
+_SQL_READ_TABLE_RE = re.compile(r"(?:from|join)\s+([a-zA-Z_][\w.]*)", re.IGNORECASE)
+_SQL_WRITE_TABLE_RE = re.compile(
+    r"(?:insert\s+into|merge\s+into|update|delete\s+from|create\s+table(?:\s+if\s+not\s+exists)?)\s+([a-zA-Z_][\w.]*)",
+    re.IGNORECASE,
+)
 
 
 def _get_full_attr_name(node: ast.AST) -> Optional[str]:
@@ -307,6 +315,69 @@ def extract_lineage_from_python(path: Path) -> Tuple[List[DatasetNode], List[Lin
                     )
                 )
                 return
+
+            # Generic DBAPI/SQLAlchemy execute(): conn.execute("SELECT ..."), cursor.execute("""INSERT ...""")
+            if isinstance(node.func, ast.Attribute) and node.func.attr in ("execute", "executemany"):
+                arg0 = node.args[0] if node.args else None
+                sql_text = _literal_str(arg0) if arg0 else None
+                if sql_text:
+                    tables_read = sorted(set(_SQL_READ_TABLE_RE.findall(sql_text)))
+                    tables_written = sorted(set(_SQL_WRITE_TABLE_RE.findall(sql_text)))
+                    line_start = getattr(node, "lineno", 1)
+                    line_end = getattr(node, "end_lineno", line_start)
+
+                    for table in tables_read:
+                        ds_id, ds_name = _table_dataset_id(table)
+                        ensure_node(ds_id, ds_name)
+                        edges.append(
+                            LineageEdge(
+                                id=f"{ds_id}->{downstream_id}#{line_start}",
+                                source_dataset_id=ds_id,
+                                target_dataset_id=downstream_id,
+                                transformation_id=None,
+                                evidence=[
+                                    Evidence(
+                                        file_path=str(path),
+                                        line_start=line_start,
+                                        line_end=line_end,
+                                        method="python_ast",
+                                        metadata={"call": node.func.attr},
+                                    )
+                                ],
+                                metadata={
+                                    "operation": "read",
+                                    "transformation_type": "sql_execute",
+                                    "source_file": str(path),
+                                },
+                            )
+                        )
+
+                    for table in tables_written:
+                        ds_id, ds_name = _table_dataset_id(table)
+                        ensure_node(ds_id, ds_name)
+                        edges.append(
+                            LineageEdge(
+                                id=f"{downstream_id}->{ds_id}#{line_start}",
+                                source_dataset_id=downstream_id,
+                                target_dataset_id=ds_id,
+                                transformation_id=None,
+                                evidence=[
+                                    Evidence(
+                                        file_path=str(path),
+                                        line_start=line_start,
+                                        line_end=line_end,
+                                        method="python_ast",
+                                        metadata={"call": node.func.attr},
+                                    )
+                                ],
+                                metadata={
+                                    "operation": "write",
+                                    "transformation_type": "sql_execute",
+                                    "source_file": str(path),
+                                },
+                            )
+                        )
+                    return
 
             # PySpark: spark.read.csv/parquet/json and df.write.csv/parquet/json/save
             if func_name and func_name.startswith("spark.read."):

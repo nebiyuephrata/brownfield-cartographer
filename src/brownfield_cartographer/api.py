@@ -4,6 +4,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import threading
@@ -14,9 +15,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from .agents.semanticist import DayOneSemanticist
 from .cli import _load_dotenv, _resolve_repo_path, _iter_env_paths
+from .db import Run, get_session, init_db
 from .graph.knowledge_graph import KnowledgeGraph
 from .orchestrator import Orchestrator
 
@@ -109,44 +113,27 @@ RUNS: Dict[str, Dict[str, Any]] = {}
 RUNS_LOCK = threading.Lock()
 
 
+@app.on_event("startup")
+def _startup() -> None:
+    init_db()
+
+
 def _now_iso() -> str:
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).isoformat()
 
 
-def _run_index_path(output_dir: Path) -> Path:
-    return output_dir / "runs.json"
-
-
-def _load_run_index(output_dir: Path) -> List[Dict[str, Any]]:
-    path = _run_index_path(output_dir)
-    if not path.exists():
-        return []
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-
-
-def _save_run_index(output_dir: Path, runs: List[Dict[str, Any]]) -> None:
-    path = _run_index_path(output_dir)
-    path.write_text(json.dumps(runs, indent=2), encoding="utf-8")
-
-
-def _append_run_index(output_dir: Path, record: Dict[str, Any]) -> None:
-    runs = _load_run_index(output_dir)
-    runs.append(record)
-    _save_run_index(output_dir, runs)
-
-
-def _update_run_index(output_dir: Path, run_id: str, updates: Dict[str, Any]) -> None:
-    runs = _load_run_index(output_dir)
-    for run in runs:
-        if run.get("run_id") == run_id:
-            run.update(updates)
-            break
-    _save_run_index(output_dir, runs)
+def _run_to_response(run: Run) -> RunResponse:
+    return RunResponse(
+        run_id=run.run_id,
+        status=run.status,
+        repo_path=run.repo_path,
+        output_dir=run.output_dir,
+        started_at=run.started_at.isoformat(),
+        completed_at=run.completed_at.isoformat() if run.completed_at else None,
+        error=run.error,
+    )
 
 def _resolve_output_dir(output_dir: str) -> Path:
     path = Path(output_dir).expanduser().resolve()
@@ -294,7 +281,12 @@ def _run_analysis_job(run_id: str, request: RunRequest) -> None:
         with RUNS_LOCK:
             RUNS[run_id]["repo_path"] = str(repo_path)
             RUNS[run_id]["output_dir"] = str(output_dir)
-        _update_run_index(output_dir, run_id, {"repo_path": str(repo_path), "output_dir": str(output_dir)})
+        with get_session() as session:
+            run = session.get(Run, run_id)
+            if run:
+                run.repo_path = str(repo_path)
+                run.output_dir = str(output_dir)
+                session.commit()
 
         orchestrator = Orchestrator(
             repo_path=repo_path,
@@ -313,32 +305,60 @@ def _run_analysis_job(run_id: str, request: RunRequest) -> None:
         updates = {"status": "complete", "completed_at": completed_at}
         with RUNS_LOCK:
             RUNS[run_id].update(updates)
-        _update_run_index(output_dir, run_id, updates)
+        with get_session() as session:
+            run = session.get(Run, run_id)
+            if run:
+                run.status = "complete"
+                run.completed_at = datetime.fromisoformat(completed_at)
+                session.commit()
     except Exception as exc:  # pragma: no cover - guard rail
         completed_at = _now_iso()
         updates = {"status": "failed", "completed_at": completed_at, "error": str(exc)}
         with RUNS_LOCK:
             RUNS[run_id].update(updates)
             output_dir = Path(RUNS[run_id].get("output_dir", ".cartography"))
-        _update_run_index(output_dir, run_id, updates)
+        try:
+            with get_session() as session:
+                run = session.get(Run, run_id)
+                if run:
+                    run.status = "failed"
+                    run.completed_at = datetime.fromisoformat(completed_at)
+                    run.error = str(exc)
+                    session.commit()
+        except SQLAlchemyError:
+            pass
 
 
 @app.post("/runs", response_model=RunResponse)
 def start_run(request: RunRequest) -> RunResponse:
     output_dir = _resolve_output_dir(request.output_dir)
     run_id = uuid.uuid4().hex
+    started_at = _now_iso()
     record = {
         "run_id": run_id,
         "status": "running",
         "repo_path": request.repo_path,
         "output_dir": str(output_dir),
-        "started_at": _now_iso(),
+        "started_at": started_at,
         "completed_at": None,
         "error": None,
     }
     with RUNS_LOCK:
         RUNS[run_id] = dict(record)
-    _append_run_index(output_dir, record)
+    try:
+        with get_session() as session:
+            session.add(
+                Run(
+                    run_id=run_id,
+                    status="running",
+                    repo_path=request.repo_path,
+                    output_dir=str(output_dir),
+                    started_at=datetime.fromisoformat(started_at),
+                )
+            )
+            session.commit()
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
 
     thread = threading.Thread(target=_run_analysis_job, args=(run_id, request), daemon=True)
     thread.start()
@@ -348,17 +368,29 @@ def start_run(request: RunRequest) -> RunResponse:
 @app.get("/runs", response_model=RunListResponse)
 def list_runs(output_dir: str = ".cartography") -> RunListResponse:
     output = _resolve_output_dir(output_dir)
-    runs = _load_run_index(output)
-    return RunListResponse(runs=[RunResponse(**run) for run in runs])
+    try:
+        with get_session() as session:
+            stmt = select(Run).where(Run.output_dir == str(output)).order_by(Run.started_at)
+            runs = session.execute(stmt).scalars().all()
+            return RunListResponse(runs=[_run_to_response(run) for run in runs])
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
 
 
 @app.get("/runs/{run_id}", response_model=RunResponse)
 def get_run(run_id: str) -> RunResponse:
     with RUNS_LOCK:
         record = RUNS.get(run_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Run not found.")
-    return RunResponse(**record)
+    if record:
+        return RunResponse(**record)
+    try:
+        with get_session() as session:
+            run = session.get(Run, run_id)
+            if not run:
+                raise HTTPException(status_code=404, detail="Run not found.")
+            return _run_to_response(run)
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}") from exc
 
 
 @app.get("/runs/{run_id}/events")

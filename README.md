@@ -90,6 +90,7 @@ Environment:
 
 - `CARTOGRAPHY_API_PORT` (default `8000`)
 - `CARTOGRAPHY_UI_ORIGINS` (comma-separated, default `*`)
+- `CARTOGRAPHY_DB_URL` (default `sqlite:///./.cartography/cartography.db`)
 - `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OLLAMA_MODEL`, `OLLAMA_HOST` (if you want semantic summaries)
 - `CARTOGRAPHY_LLM_PROVIDER`, `CARTOGRAPHY_LLM_MODEL` (chat primary)
 - `CARTOGRAPHY_LLM_FALLBACK_PROVIDER`, `CARTOGRAPHY_LLM_FALLBACK_MODEL` (chat fallback)

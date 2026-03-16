@@ -3,7 +3,6 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "rec
 import ReactFlow, { Background, Controls, MiniMap } from "reactflow";
 import type { GraphPayload } from "../api/cartography";
 import { activitySeries } from "../data/mock";
-import { selectGraphFocus } from "../api/helpers";
 
 interface GraphsPanelProps {
   moduleGraph?: GraphPayload | null;
@@ -15,30 +14,85 @@ type FlowGraph = "module" | "lineage" | null;
 
 const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: GraphsPanelProps) => {
   const [fullscreen, setFullscreen] = useState<FlowGraph>(null);
-  const focusModule = useMemo(() => selectGraphFocus(moduleGraph, 14), [moduleGraph]);
-  const focusLineage = useMemo(() => selectGraphFocus(lineageGraph, 14), [lineageGraph]);
+  const [moduleSearch, setModuleSearch] = useState("");
+  const [lineageSearch, setLineageSearch] = useState("");
+  const [moduleLimit, setModuleLimit] = useState(24);
+  const [lineageLimit, setLineageLimit] = useState(24);
+  const [selectedModule, setSelectedModule] = useState<string | null>(null);
+  const [selectedLineage, setSelectedLineage] = useState<string | null>(null);
+  const [animateEdges, setAnimateEdges] = useState(true);
+
+  const sliceGraph = (graph: GraphPayload | null | undefined, limit: number, query: string) => {
+    if (!graph || !graph.nodes || !graph.edges) {
+      return { nodes: [], edges: [] as GraphPayload["edges"] };
+    }
+    const lowered = query.trim().toLowerCase();
+    const nodes = graph.nodes.filter((node) => (lowered ? String(node.id).toLowerCase().includes(lowered) : true));
+    const limited = nodes.slice(0, Math.max(6, limit));
+    const nodeSet = new Set(limited.map((node) => node.id));
+    const edges = graph.edges.filter((edge) => nodeSet.has(edge.source) && nodeSet.has(edge.target));
+    return { nodes: limited, edges };
+  };
+
+  const focusModule = useMemo(
+    () => sliceGraph(moduleGraph, moduleLimit, moduleSearch),
+    [moduleGraph, moduleLimit, moduleSearch]
+  );
+  const focusLineage = useMemo(
+    () => sliceGraph(lineageGraph, lineageLimit, lineageSearch),
+    [lineageGraph, lineageLimit, lineageSearch]
+  );
 
   useEffect(() => {
     if (focusLineageNodeId) {
       setFullscreen("lineage");
+      setSelectedLineage(focusLineageNodeId);
     }
   }, [focusLineageNodeId]);
+
+  const moduleDegrees = useMemo(() => {
+    const degrees = new Map<string, { in: number; out: number }>();
+    for (const edge of focusModule.edges) {
+      degrees.set(edge.source, { in: degrees.get(edge.source)?.in ?? 0, out: (degrees.get(edge.source)?.out ?? 0) + 1 });
+      degrees.set(edge.target, { in: (degrees.get(edge.target)?.in ?? 0) + 1, out: degrees.get(edge.target)?.out ?? 0 });
+    }
+    return degrees;
+  }, [focusModule.edges]);
+
+  const lineageDegrees = useMemo(() => {
+    const degrees = new Map<string, { in: number; out: number }>();
+    for (const edge of focusLineage.edges) {
+      degrees.set(edge.source, {
+        in: degrees.get(edge.source)?.in ?? 0,
+        out: (degrees.get(edge.source)?.out ?? 0) + 1
+      });
+      degrees.set(edge.target, {
+        in: (degrees.get(edge.target)?.in ?? 0) + 1,
+        out: degrees.get(edge.target)?.out ?? 0
+      });
+    }
+    return degrees;
+  }, [focusLineage.edges]);
 
   const flowNodes = useMemo(
     () =>
       (focusModule?.nodes ?? []).map((node, index) => ({
         id: node.id,
         data: { label: String(node.id) },
-        position: { x: 50 + index * 120, y: 50 + (index % 2) * 120 },
+        position: {
+          x: 200 + Math.cos(index / 2.5) * 220 + (index % 3) * 30,
+          y: 140 + Math.sin(index / 2.5) * 160
+        },
         style: {
           background: "#0f172a",
           color: "#e2e8f0",
           borderRadius: 12,
           padding: 12,
-          border: "1px solid rgba(148,163,184,0.35)"
+          border: node.id === selectedModule ? "2px solid #52e1b2" : "1px solid rgba(148,163,184,0.35)",
+          boxShadow: node.id === selectedModule ? "0 0 0 2px rgba(82,225,178,0.35)" : undefined
         }
       })),
-    [focusModule]
+    [focusModule, selectedModule]
   );
 
   const flowEdges = useMemo(
@@ -47,10 +101,10 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
         id: `edge-${index}`,
         source: edge.source,
         target: edge.target,
-        animated: true,
+        animated: animateEdges,
         style: { stroke: "#52e1b2" }
       })),
-    [focusModule]
+    [focusModule, animateEdges]
   );
 
   const lineageNodes = useMemo(
@@ -58,17 +112,23 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
       (focusLineage?.nodes ?? []).map((node, index) => ({
         id: node.id,
         data: { label: String(node.id) },
-        position: { x: 50 + index * 120, y: 50 + (index % 2) * 120 },
+        position: {
+          x: 220 + Math.cos(index / 2.7) * 230 + (index % 4) * 20,
+          y: 150 + Math.sin(index / 2.7) * 170
+        },
         style: {
           background: "#111827",
           color: "#e2e8f0",
           borderRadius: 12,
           padding: 12,
           border:
-            node.id === focusLineageNodeId ? "2px solid #f59e0b" : "1px solid rgba(148,163,184,0.35)"
+            node.id === focusLineageNodeId || node.id === selectedLineage
+              ? "2px solid #f59e0b"
+              : "1px solid rgba(148,163,184,0.35)",
+          boxShadow: node.id === selectedLineage ? "0 0 0 2px rgba(245,158,11,0.4)" : undefined
         }
       })),
-    [focusLineage, focusLineageNodeId]
+    [focusLineage, focusLineageNodeId, selectedLineage]
   );
 
   const lineageEdges = useMemo(
@@ -77,10 +137,10 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
         id: `lineage-edge-${index}`,
         source: edge.source,
         target: edge.target,
-        animated: true,
+        animated: animateEdges,
         style: { stroke: "#7aa5ff" }
       })),
-    [focusLineage]
+    [focusLineage, animateEdges]
   );
 
   return (
@@ -129,13 +189,48 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
               Full screen
             </button>
           </div>
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-[10px] text-graphite-500 dark:text-graphite-300">
+            <input
+              value={moduleSearch}
+              onChange={(event) => setModuleSearch(event.target.value)}
+              placeholder="Search module..."
+              className="rounded-full border border-graphite-200 bg-white/70 px-3 py-1 text-[10px] text-graphite-600 dark:border-graphite-700 dark:bg-graphite-900/70 dark:text-graphite-200"
+            />
+            <label className="flex items-center gap-2">
+              Nodes
+              <input
+                type="range"
+                min={8}
+                max={60}
+                value={moduleLimit}
+                onChange={(event) => setModuleLimit(Number(event.target.value))}
+                className="accent-signal-500"
+              />
+            </label>
+            <label className="flex items-center gap-2">
+              Animate
+              <input type="checkbox" checked={animateEdges} onChange={() => setAnimateEdges((prev) => !prev)} />
+            </label>
+          </div>
           <div className="h-[calc(100%-28px)] rounded-xl border border-graphite-200/60 dark:border-graphite-700">
-            <ReactFlow nodes={flowNodes} edges={flowEdges} fitView className="h-full w-full">
+            <ReactFlow
+              nodes={flowNodes}
+              edges={flowEdges}
+              fitView
+              className="h-full w-full"
+              onNodeClick={(_, node) => setSelectedModule(node.id)}
+            >
               <MiniMap />
               <Controls />
               <Background />
             </ReactFlow>
           </div>
+          {selectedModule ? (
+            <div className="mt-3 rounded-xl border border-graphite-200 bg-white/70 p-3 text-[10px] text-graphite-600 dark:border-graphite-700 dark:bg-graphite-900/70 dark:text-graphite-200">
+              <div className="font-semibold text-graphite-800 dark:text-graphite-100">Selected: {selectedModule}</div>
+              <div>In: {moduleDegrees.get(selectedModule)?.in ?? 0} · Out: {moduleDegrees.get(selectedModule)?.out ?? 0}</div>
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="mt-4 h-72 rounded-2xl bg-white/80 p-3 dark:bg-graphite-900/70">
@@ -148,13 +243,44 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
             Full screen
           </button>
         </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-[10px] text-graphite-500 dark:text-graphite-300">
+          <input
+            value={lineageSearch}
+            onChange={(event) => setLineageSearch(event.target.value)}
+            placeholder="Search dataset..."
+            className="rounded-full border border-graphite-200 bg-white/70 px-3 py-1 text-[10px] text-graphite-600 dark:border-graphite-700 dark:bg-graphite-900/70 dark:text-graphite-200"
+          />
+          <label className="flex items-center gap-2">
+            Nodes
+            <input
+              type="range"
+              min={8}
+              max={60}
+              value={lineageLimit}
+              onChange={(event) => setLineageLimit(Number(event.target.value))}
+              className="accent-signal-500"
+            />
+          </label>
+        </div>
         <div className="h-[calc(100%-28px)] rounded-xl border border-graphite-200/60 dark:border-graphite-700">
-          <ReactFlow nodes={lineageNodes} edges={lineageEdges} fitView className="h-full w-full">
+          <ReactFlow
+            nodes={lineageNodes}
+            edges={lineageEdges}
+            fitView
+            className="h-full w-full"
+            onNodeClick={(_, node) => setSelectedLineage(node.id)}
+          >
             <MiniMap />
             <Controls />
             <Background />
           </ReactFlow>
         </div>
+        {selectedLineage ? (
+          <div className="mt-3 rounded-xl border border-graphite-200 bg-white/70 p-3 text-[10px] text-graphite-600 dark:border-graphite-700 dark:bg-graphite-900/70 dark:text-graphite-200">
+            <div className="font-semibold text-graphite-800 dark:text-graphite-100">Selected: {selectedLineage}</div>
+            <div>In: {lineageDegrees.get(selectedLineage)?.in ?? 0} · Out: {lineageDegrees.get(selectedLineage)?.out ?? 0}</div>
+          </div>
+        ) : null}
       </div>
       {fullscreen ? (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-graphite-900/90 p-6">

@@ -91,6 +91,9 @@ Environment:
 - `CARTOGRAPHY_API_PORT` (default `8000`)
 - `CARTOGRAPHY_UI_ORIGINS` (comma-separated, default `*`)
 - `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OLLAMA_MODEL`, `OLLAMA_HOST` (if you want semantic summaries)
+- `CARTOGRAPHY_LLM_PROVIDER`, `CARTOGRAPHY_LLM_MODEL` (chat primary)
+- `CARTOGRAPHY_LLM_FALLBACK_PROVIDER`, `CARTOGRAPHY_LLM_FALLBACK_MODEL` (chat fallback)
+- `CARTOGRAPHY_LLM_API_KEY`, `CARTOGRAPHY_LLM_FALLBACK_API_KEY`, `CARTOGRAPHY_LLM_BASE_URL` (chat credentials)
 
 Then set `VITE_API_BASE_URL` in `ui/.env` to match the API host.
 
@@ -106,7 +109,7 @@ Then set `VITE_API_BASE_URL` in `ui/.env` to match the API host.
 - Vite + React + TypeScript + Tailwind.
 - Graphs rendered with `recharts` and `reactflow`.
 - Markdown rendered with `react-markdown` + `remark-gfm`.
-- LLM routing settings are local state today; hook to a backend service to persist settings and call providers.
+- LLM routing settings can be persisted to `.env` and are routed through the API (non-Ollama providers use OpenRouter today).
 
 **Suggested integration**
 

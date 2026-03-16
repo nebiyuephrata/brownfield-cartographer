@@ -1,6 +1,8 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import ReactFlow, { Background, Controls, MiniMap } from "reactflow";
+import ReactFlow, { Background, Controls, MiniMap, MarkerType } from "reactflow";
+import { toPng } from "html-to-image";
+import jsPDF from "jspdf";
 import type { GraphPayload } from "../api/cartography";
 import { activitySeries } from "../data/mock";
 
@@ -21,6 +23,9 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
   const [selectedModule, setSelectedModule] = useState<string | null>(null);
   const [selectedLineage, setSelectedLineage] = useState<string | null>(null);
   const [animateEdges, setAnimateEdges] = useState(true);
+  const moduleRef = useRef<HTMLDivElement | null>(null);
+  const lineageRef = useRef<HTMLDivElement | null>(null);
+  const fullscreenRef = useRef<HTMLDivElement | null>(null);
 
   const sliceGraph = (graph: GraphPayload | null | undefined, limit: number, query: string) => {
     if (!graph || !graph.nodes || !graph.edges) {
@@ -42,6 +47,54 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
     () => sliceGraph(lineageGraph, lineageLimit, lineageSearch),
     [lineageGraph, lineageLimit, lineageSearch]
   );
+
+  const clusterKey = (id: string) => {
+    const first = id.split(/[./]/).slice(0, 2).join("/");
+    return first || id;
+  };
+
+  const buildClusters = (nodes: Array<{ id: string; [key: string]: unknown }>) => {
+    const clusterMap = new Map<string, string[]>();
+    for (const node of nodes) {
+      const raw = String(node.id);
+      const key = clusterKey(raw);
+      if (!clusterMap.has(key)) {
+        clusterMap.set(key, []);
+      }
+      clusterMap.get(key)!.push(raw);
+    }
+    return clusterMap;
+  };
+
+  const palette = [
+    "#52e1b2",
+    "#7aa5ff",
+    "#f59e0b",
+    "#f472b6",
+    "#34d399",
+    "#a78bfa",
+    "#f87171",
+    "#60a5fa"
+  ];
+
+  const moduleClusters = useMemo(() => buildClusters(focusModule.nodes), [focusModule.nodes]);
+  const lineageClusters = useMemo(() => buildClusters(focusLineage.nodes), [focusLineage.nodes]);
+
+  const clusterColors = useMemo(() => {
+    const map = new Map<string, string>();
+    let index = 0;
+    for (const key of moduleClusters.keys()) {
+      map.set(key, palette[index % palette.length]);
+      index += 1;
+    }
+    for (const key of lineageClusters.keys()) {
+      if (!map.has(key)) {
+        map.set(key, palette[index % palette.length]);
+        index += 1;
+      }
+    }
+    return map;
+  }, [moduleClusters, lineageClusters]);
 
   useEffect(() => {
     if (focusLineageNodeId) {
@@ -79,20 +132,23 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
       (focusModule?.nodes ?? []).map((node, index) => ({
         id: node.id,
         data: { label: String(node.id) },
-        position: {
-          x: 200 + Math.cos(index / 2.5) * 220 + (index % 3) * 30,
-          y: 140 + Math.sin(index / 2.5) * 160
-        },
         style: {
           background: "#0f172a",
           color: "#e2e8f0",
           borderRadius: 12,
           padding: 12,
           border: node.id === selectedModule ? "2px solid #52e1b2" : "1px solid rgba(148,163,184,0.35)",
-          boxShadow: node.id === selectedModule ? "0 0 0 2px rgba(82,225,178,0.35)" : undefined
+          boxShadow: node.id === selectedModule ? "0 0 0 2px rgba(82,225,178,0.35)" : undefined,
+          outline: clusterColors.get(clusterKey(String(node.id)))
+            ? `1px solid ${clusterColors.get(clusterKey(String(node.id)))}`
+            : undefined
+        },
+        position: {
+          x: 200 + Math.cos(index / 2.5) * 220 + (index % 3) * 30,
+          y: 140 + Math.sin(index / 2.5) * 160
         }
       })),
-    [focusModule, selectedModule]
+    [focusModule, selectedModule, clusterColors]
   );
 
   const flowEdges = useMemo(
@@ -102,7 +158,8 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
         source: edge.source,
         target: edge.target,
         animated: animateEdges,
-        style: { stroke: "#52e1b2" }
+        style: { stroke: "#52e1b2" },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#52e1b2" }
       })),
     [focusModule, animateEdges]
   );
@@ -112,10 +169,6 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
       (focusLineage?.nodes ?? []).map((node, index) => ({
         id: node.id,
         data: { label: String(node.id) },
-        position: {
-          x: 220 + Math.cos(index / 2.7) * 230 + (index % 4) * 20,
-          y: 150 + Math.sin(index / 2.7) * 170
-        },
         style: {
           background: "#111827",
           color: "#e2e8f0",
@@ -125,7 +178,14 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
             node.id === focusLineageNodeId || node.id === selectedLineage
               ? "2px solid #f59e0b"
               : "1px solid rgba(148,163,184,0.35)",
-          boxShadow: node.id === selectedLineage ? "0 0 0 2px rgba(245,158,11,0.4)" : undefined
+          boxShadow: node.id === selectedLineage ? "0 0 0 2px rgba(245,158,11,0.4)" : undefined,
+          outline: clusterColors.get(clusterKey(String(node.id)))
+            ? `1px solid ${clusterColors.get(clusterKey(String(node.id)))}`
+            : undefined
+        },
+        position: {
+          x: 220 + Math.cos(index / 2.7) * 230 + (index % 4) * 20,
+          y: 150 + Math.sin(index / 2.7) * 170
         }
       })),
     [focusLineage, focusLineageNodeId, selectedLineage]
@@ -138,7 +198,8 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
         source: edge.source,
         target: edge.target,
         animated: animateEdges,
-        style: { stroke: "#7aa5ff" }
+        style: { stroke: "#7aa5ff" },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#7aa5ff" }
       })),
     [focusLineage, animateEdges]
   );
@@ -179,7 +240,7 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
             </AreaChart>
           </ResponsiveContainer>
         </div>
-        <div className="h-72 rounded-2xl bg-white/80 p-3 dark:bg-graphite-900/70">
+        <div className="h-72 rounded-2xl bg-white/80 p-3 dark:bg-graphite-900/70" ref={moduleRef}>
           <div className="mb-2 flex items-center justify-between text-xs font-semibold text-graphite-600 dark:text-graphite-300">
             <span>Dependency flow</span>
             <button
@@ -211,6 +272,18 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
               Animate
               <input type="checkbox" checked={animateEdges} onChange={() => setAnimateEdges((prev) => !prev)} />
             </label>
+            <button
+              onClick={() => exportImage(moduleRef.current, "module-flow")}
+              className="rounded-full border border-graphite-200 px-2 py-1 text-[10px] hover:border-signal-500 dark:border-graphite-700"
+            >
+              Export PNG
+            </button>
+            <button
+              onClick={() => exportImage(moduleRef.current, "module-flow", true)}
+              className="rounded-full border border-graphite-200 px-2 py-1 text-[10px] hover:border-signal-500 dark:border-graphite-700"
+            >
+              Export PDF
+            </button>
           </div>
           <div className="h-[calc(100%-28px)] rounded-xl border border-graphite-200/60 dark:border-graphite-700">
             <ReactFlow
@@ -228,12 +301,13 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
           {selectedModule ? (
             <div className="mt-3 rounded-xl border border-graphite-200 bg-white/70 p-3 text-[10px] text-graphite-600 dark:border-graphite-700 dark:bg-graphite-900/70 dark:text-graphite-200">
               <div className="font-semibold text-graphite-800 dark:text-graphite-100">Selected: {selectedModule}</div>
+              <div>Cluster: {clusterKey(selectedModule)}</div>
               <div>In: {moduleDegrees.get(selectedModule)?.in ?? 0} · Out: {moduleDegrees.get(selectedModule)?.out ?? 0}</div>
             </div>
           ) : null}
         </div>
       </div>
-      <div className="mt-4 h-72 rounded-2xl bg-white/80 p-3 dark:bg-graphite-900/70">
+      <div className="mt-4 h-72 rounded-2xl bg-white/80 p-3 dark:bg-graphite-900/70" ref={lineageRef}>
         <div className="mb-2 flex items-center justify-between text-xs font-semibold text-graphite-600 dark:text-graphite-300">
           <span>Lineage flow</span>
           <button
@@ -261,6 +335,18 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
               className="accent-signal-500"
             />
           </label>
+          <button
+            onClick={() => exportImage(lineageRef.current, "lineage-flow")}
+            className="rounded-full border border-graphite-200 px-2 py-1 text-[10px] hover:border-signal-500 dark:border-graphite-700"
+          >
+            Export PNG
+          </button>
+          <button
+            onClick={() => exportImage(lineageRef.current, "lineage-flow", true)}
+            className="rounded-full border border-graphite-200 px-2 py-1 text-[10px] hover:border-signal-500 dark:border-graphite-700"
+          >
+            Export PDF
+          </button>
         </div>
         <div className="h-[calc(100%-28px)] rounded-xl border border-graphite-200/60 dark:border-graphite-700">
           <ReactFlow
@@ -278,21 +364,36 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
         {selectedLineage ? (
           <div className="mt-3 rounded-xl border border-graphite-200 bg-white/70 p-3 text-[10px] text-graphite-600 dark:border-graphite-700 dark:bg-graphite-900/70 dark:text-graphite-200">
             <div className="font-semibold text-graphite-800 dark:text-graphite-100">Selected: {selectedLineage}</div>
+            <div>Cluster: {clusterKey(selectedLineage)}</div>
             <div>In: {lineageDegrees.get(selectedLineage)?.in ?? 0} · Out: {lineageDegrees.get(selectedLineage)?.out ?? 0}</div>
           </div>
         ) : null}
       </div>
       {fullscreen ? (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-graphite-900/90 p-6">
-          <div className="flex h-full w-full flex-col rounded-3xl bg-graphite-950 p-4">
+          <div className="flex h-full w-full flex-col rounded-3xl bg-graphite-950 p-4" ref={fullscreenRef}>
             <div className="mb-3 flex items-center justify-between text-xs text-graphite-200">
               <span>{fullscreen === "module" ? "Module dependency flow" : "Lineage flow"}</span>
-              <button
-                onClick={() => setFullscreen(null)}
-                className="rounded-full border border-graphite-700 px-3 py-1 text-[11px] text-graphite-200"
-              >
-                Exit full screen
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => exportImage(fullscreenRef.current, `${fullscreen}-fullscreen`)}
+                  className="rounded-full border border-graphite-700 px-3 py-1 text-[11px] text-graphite-200"
+                >
+                  Export PNG
+                </button>
+                <button
+                  onClick={() => exportImage(fullscreenRef.current, `${fullscreen}-fullscreen`, true)}
+                  className="rounded-full border border-graphite-700 px-3 py-1 text-[11px] text-graphite-200"
+                >
+                  Export PDF
+                </button>
+                <button
+                  onClick={() => setFullscreen(null)}
+                  className="rounded-full border border-graphite-700 px-3 py-1 text-[11px] text-graphite-200"
+                >
+                  Exit full screen
+                </button>
+              </div>
             </div>
             <div className="mb-3 flex items-center gap-3 text-[11px] text-graphite-300">
               <span className="flex items-center gap-2">
@@ -307,6 +408,14 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
                 <span className="h-2 w-2 rounded-full border border-graphite-500" />
                 Node
               </span>
+            </div>
+            <div className="mb-3 flex flex-wrap gap-2 text-[11px] text-graphite-400">
+              {[...clusterColors.entries()].slice(0, 8).map(([key, color]) => (
+                <span key={key} className="flex items-center gap-2 rounded-full border border-graphite-800 px-3 py-1">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+                  {key}
+                </span>
+              ))}
             </div>
             <div className="flex-1 rounded-2xl border border-graphite-800 bg-graphite-900">
               {(fullscreen === "module" ? flowNodes : lineageNodes).length === 0 ? (
@@ -336,3 +445,17 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: Gra
 GraphsPanel.displayName = "GraphsPanel";
 
 export default GraphsPanel;
+  const exportImage = async (target: HTMLDivElement | null, name: string, pdf = false) => {
+    if (!target) return;
+    const dataUrl = await toPng(target, { backgroundColor: "#0f172a", pixelRatio: 2 });
+    if (pdf) {
+      const pdfDoc = new jsPDF({ orientation: "landscape", unit: "px", format: "a4" });
+      pdfDoc.addImage(dataUrl, "PNG", 20, 20, 720, 420);
+      pdfDoc.save(`${name}.pdf`);
+    } else {
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = `${name}.png`;
+      link.click();
+    }
+  };

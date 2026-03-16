@@ -57,6 +57,41 @@ const ChatPanel = memo(({ outputDir, repoPath, llmConfig }: ChatPanelProps) => {
         if (!outputDir) {
           throw new Error("Run analysis first to enable chat insights.");
         }
+        const question = userMessage.content.toLowerCase();
+        const heuristicTokens = ["blast", "impact", "critical", "ingestion", "source", "logic", "active"];
+        const shouldUseHeuristics = heuristicTokens.some((token) => question.includes(token));
+
+        if (shouldUseHeuristics) {
+          const insights = await api.dayOne(outputDir);
+          let answer = "";
+          if (question.includes("blast") || question.includes("impact")) {
+            answer = insights.blast_radius;
+          } else if (question.includes("critical")) {
+            answer = insights.critical_datasets;
+          } else if (question.includes("ingestion") || question.includes("source")) {
+            answer = insights.main_ingestion_path;
+          } else if (question.includes("logic")) {
+            answer = insights.business_logic_locations;
+          } else if (question.includes("active")) {
+            answer = insights.most_active_files;
+          } else {
+            answer = [
+              insights.main_ingestion_path,
+              insights.critical_datasets,
+              insights.blast_radius,
+              insights.business_logic_locations,
+              insights.most_active_files
+            ].join(" ");
+          }
+          const assistantMessage: Message = {
+            id: `a-${Date.now()}`,
+            role: "assistant",
+            content: `${answer}\n\n(Answer generated without LLM to save cost.)`
+          };
+          setMessages((prev) => [...prev, assistantMessage]);
+          return;
+        }
+
         const response = await api.chat({
           question: userMessage.content,
           output_dir: outputDir,

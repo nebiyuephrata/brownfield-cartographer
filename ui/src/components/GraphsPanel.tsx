@@ -122,7 +122,7 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph }: GraphsPanelProps) => {
             </button>
           </div>
           <div className="h-[calc(100%-28px)] rounded-xl border border-graphite-200/60 dark:border-graphite-700">
-            <ReactFlow nodes={flowNodes} edges={flowEdges} fitView>
+            <ReactFlow nodes={flowNodes} edges={flowEdges} fitView className="h-full w-full">
               <MiniMap />
               <Controls />
               <Background />
@@ -141,7 +141,7 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph }: GraphsPanelProps) => {
           </button>
         </div>
         <div className="h-[calc(100%-28px)] rounded-xl border border-graphite-200/60 dark:border-graphite-700">
-          <ReactFlow nodes={lineageNodes} edges={lineageEdges} fitView>
+          <ReactFlow nodes={lineageNodes} edges={lineageEdges} fitView className="h-full w-full">
             <MiniMap />
             <Controls />
             <Background />
@@ -149,7 +149,7 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph }: GraphsPanelProps) => {
         </div>
       </div>
       {fullscreen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-graphite-900/90 p-6">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-graphite-900/90 p-6">
           <div className="flex h-full w-full flex-col rounded-3xl bg-graphite-950 p-4">
             <div className="mb-3 flex items-center justify-between text-xs text-graphite-200">
               <span>{fullscreen === "module" ? "Module dependency flow" : "Lineage flow"}</span>
@@ -161,15 +161,22 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph }: GraphsPanelProps) => {
               </button>
             </div>
             <div className="flex-1 rounded-2xl border border-graphite-800 bg-graphite-900">
-              <ReactFlow
-                nodes={fullscreen === "module" ? flowNodes : lineageNodes}
-                edges={fullscreen === "module" ? flowEdges : lineageEdges}
-                fitView
-              >
-                <MiniMap />
-                <Controls />
-                <Background />
-              </ReactFlow>
+              {(fullscreen === "module" ? flowNodes : lineageNodes).length === 0 ? (
+                <div className="flex h-full items-center justify-center text-xs text-graphite-400">
+                  No nodes available yet. Run analysis to populate the graph.
+                </div>
+              ) : (
+                <ReactFlow
+                  nodes={fullscreen === "module" ? flowNodes : lineageNodes}
+                  edges={fullscreen === "module" ? flowEdges : lineageEdges}
+                  fitView
+                  className="h-full w-full"
+                >
+                  <MiniMap />
+                  <Controls />
+                  <Background />
+                </ReactFlow>
+              )}
             </div>
           </div>
         </div>

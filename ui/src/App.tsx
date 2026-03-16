@@ -14,6 +14,7 @@ import { deriveGraphSummary } from "./api/helpers";
 import type { LlmProvider } from "./data/providers";
 import RunHistory from "./components/RunHistory";
 import RunDetail from "./components/RunDetail";
+import BlastRadiusPanel from "./components/BlastRadiusPanel";
 
 const App = () => {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
@@ -31,6 +32,7 @@ const App = () => {
   const [runHistory, setRunHistory] = useState<RunResponse[]>([]);
   const [selectedRun, setSelectedRun] = useState<RunResponse | null>(null);
   const [indexStatus, setIndexStatus] = useState<string | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
   const [llmConfig, setLlmConfig] = useState({
     provider: "ollama" as LlmProvider,
     model: "llama3.1",
@@ -105,6 +107,7 @@ const App = () => {
     setStatusMessage(null);
     try {
       setStatusLabel("Queued");
+      setIsRunning(true);
       const run = await api.startRun({ repo_path: repoUrl, output_dir: ".cartography", enable_index: false });
       setActiveRunId(run.run_id);
       setSelectedRun(run);
@@ -119,6 +122,7 @@ const App = () => {
           const payload = JSON.parse((event as MessageEvent).data);
           setStatusLabel(payload.status ?? "Running");
           if (payload.status === "complete") {
+            setIsRunning(false);
             void api.listRuns(run.output_dir).then((response) => setRunHistory(response.runs));
           }
         } catch {
@@ -148,12 +152,14 @@ const App = () => {
               setLineageGraph(lineage);
               setStatusMessage(`Analysis complete for ${run.repo_path}`);
               setStatusLabel("Complete");
+              setIsRunning(false);
               break;
             }
             if (current?.status === "failed") {
               setSelectedRun(current);
               setStatusMessage(current.error ?? "Run failed.");
               setStatusLabel("Failed");
+              setIsRunning(false);
               break;
             }
           } catch {
@@ -166,6 +172,7 @@ const App = () => {
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Failed to run analysis.");
       setStatusLabel("Failed");
+      setIsRunning(false);
     }
   }, [repoUrl]);
 
@@ -225,6 +232,7 @@ const App = () => {
               />
             </div>
             <GraphsPanel moduleGraph={moduleGraph} lineageGraph={lineageGraph} />
+            <BlastRadiusPanel lineageGraph={lineageGraph} />
           </div>
 
           <div className="grid gap-6">
@@ -254,6 +262,17 @@ const App = () => {
         {statusMessage ? (
           <div className="rounded-2xl bg-white/80 px-5 py-3 text-xs text-graphite-600 shadow-sm dark:bg-graphite-900/60 dark:text-graphite-200">
             {statusMessage} · Graphs: {deriveGraphSummary(moduleGraph).nodes} nodes / {deriveGraphSummary(moduleGraph).edges} edges
+          </div>
+        ) : null}
+        {isRunning ? (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-graphite-900/70 p-6">
+            <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-3xl bg-white/90 p-6 text-center text-graphite-700 shadow-soft dark:bg-graphite-950 dark:text-graphite-100">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-graphite-200 border-t-signal-500 dark:border-graphite-700" />
+              <div className="text-sm font-semibold">Analyzing repo…</div>
+              <div className="text-xs text-graphite-500 dark:text-graphite-300">
+                {statusLabel || "Running"} · This can take a few minutes for large repos.
+              </div>
+            </div>
           </div>
         ) : null}
       </div>

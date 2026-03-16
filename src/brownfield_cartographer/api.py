@@ -6,9 +6,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import threading
+import time
+import uuid
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .agents.semanticist import DayOneSemanticist
@@ -68,6 +72,28 @@ class ChatResponse(BaseModel):
     hints: List[str]
 
 
+class RunRequest(BaseModel):
+    repo_path: str
+    output_dir: str = ".cartography"
+    run_lineage: bool = True
+    run_semantic: bool = True
+    ignore_globs: List[str] = Field(default_factory=list)
+
+
+class RunResponse(BaseModel):
+    run_id: str
+    status: str
+    repo_path: str
+    output_dir: str
+    started_at: str
+    completed_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+class RunListResponse(BaseModel):
+    runs: List[RunResponse]
+
+
 app = FastAPI(title="Brownfield Cartographer API")
 
 allowed_origins = os.getenv("CARTOGRAPHY_UI_ORIGINS", "*").split(",")
@@ -79,6 +105,48 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+RUNS: Dict[str, Dict[str, Any]] = {}
+RUNS_LOCK = threading.Lock()
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _run_index_path(output_dir: Path) -> Path:
+    return output_dir / "runs.json"
+
+
+def _load_run_index(output_dir: Path) -> List[Dict[str, Any]]:
+    path = _run_index_path(output_dir)
+    if not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+
+
+def _save_run_index(output_dir: Path, runs: List[Dict[str, Any]]) -> None:
+    path = _run_index_path(output_dir)
+    path.write_text(json.dumps(runs, indent=2), encoding="utf-8")
+
+
+def _append_run_index(output_dir: Path, record: Dict[str, Any]) -> None:
+    runs = _load_run_index(output_dir)
+    runs.append(record)
+    _save_run_index(output_dir, runs)
+
+
+def _update_run_index(output_dir: Path, run_id: str, updates: Dict[str, Any]) -> None:
+    runs = _load_run_index(output_dir)
+    for run in runs:
+        if run.get("run_id") == run_id:
+            run.update(updates)
+            break
+    _save_run_index(output_dir, runs)
 
 def _resolve_output_dir(output_dir: str) -> Path:
     path = Path(output_dir).expanduser().resolve()
@@ -216,6 +284,122 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         lineage_nodes=lineage_nodes,
         lineage_edges=lineage_edges,
     )
+
+
+def _run_analysis_job(run_id: str, request: RunRequest) -> None:
+    _load_dotenv()
+    try:
+        repo_path = _resolve_repo_path(request.repo_path)
+        output_dir = _resolve_output_dir(request.output_dir)
+        with RUNS_LOCK:
+            RUNS[run_id]["repo_path"] = str(repo_path)
+            RUNS[run_id]["output_dir"] = str(output_dir)
+        _update_run_index(output_dir, run_id, {"repo_path": str(repo_path), "output_dir": str(output_dir)})
+
+        orchestrator = Orchestrator(
+            repo_path=repo_path,
+            output_dir=output_dir,
+            run_hydrologist=request.run_lineage,
+            enable_semanticist=request.run_semantic,
+            ignore_globs=request.ignore_globs,
+        )
+        orchestrator.run_surveyor()
+        if request.run_lineage:
+            orchestrator.run_hydrologist()
+        if request.run_semantic:
+            orchestrator.run_semanticist()
+
+        completed_at = _now_iso()
+        updates = {"status": "complete", "completed_at": completed_at}
+        with RUNS_LOCK:
+            RUNS[run_id].update(updates)
+        _update_run_index(output_dir, run_id, updates)
+    except Exception as exc:  # pragma: no cover - guard rail
+        completed_at = _now_iso()
+        updates = {"status": "failed", "completed_at": completed_at, "error": str(exc)}
+        with RUNS_LOCK:
+            RUNS[run_id].update(updates)
+            output_dir = Path(RUNS[run_id].get("output_dir", ".cartography"))
+        _update_run_index(output_dir, run_id, updates)
+
+
+@app.post("/runs", response_model=RunResponse)
+def start_run(request: RunRequest) -> RunResponse:
+    output_dir = _resolve_output_dir(request.output_dir)
+    run_id = uuid.uuid4().hex
+    record = {
+        "run_id": run_id,
+        "status": "running",
+        "repo_path": request.repo_path,
+        "output_dir": str(output_dir),
+        "started_at": _now_iso(),
+        "completed_at": None,
+        "error": None,
+    }
+    with RUNS_LOCK:
+        RUNS[run_id] = dict(record)
+    _append_run_index(output_dir, record)
+
+    thread = threading.Thread(target=_run_analysis_job, args=(run_id, request), daemon=True)
+    thread.start()
+    return RunResponse(**record)
+
+
+@app.get("/runs", response_model=RunListResponse)
+def list_runs(output_dir: str = ".cartography") -> RunListResponse:
+    output = _resolve_output_dir(output_dir)
+    runs = _load_run_index(output)
+    return RunListResponse(runs=[RunResponse(**run) for run in runs])
+
+
+@app.get("/runs/{run_id}", response_model=RunResponse)
+def get_run(run_id: str) -> RunResponse:
+    with RUNS_LOCK:
+        record = RUNS.get(run_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Run not found.")
+    return RunResponse(**record)
+
+
+@app.get("/runs/{run_id}/events")
+def stream_run_events(run_id: str) -> StreamingResponse:
+    def event_stream():
+        last_size = 0
+        last_status = None
+        while True:
+            with RUNS_LOCK:
+                record = RUNS.get(run_id)
+            if not record:
+                yield "event: status\ndata: {\"status\":\"unknown\"}\n\n"
+                break
+
+            status = record.get("status")
+            output_dir = Path(record.get("output_dir", ".cartography"))
+            trace_path = output_dir / "cartography_trace.jsonl"
+
+            if status != last_status:
+                last_status = status
+                payload = json.dumps({"status": status, "run_id": run_id})
+                yield f"event: status\ndata: {payload}\n\n"
+
+            if trace_path.exists():
+                current_size = trace_path.stat().st_size
+                if current_size > last_size:
+                    with trace_path.open("r", encoding="utf-8") as handle:
+                        handle.seek(last_size)
+                        for line in handle:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            yield f"event: trace\ndata: {line}\n\n"
+                    last_size = current_size
+
+            if status in ("complete", "failed"):
+                break
+
+            time.sleep(1)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.get("/graphs/module")

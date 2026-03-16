@@ -51,7 +51,54 @@ cartography map /path/to/target/repo some.package.module --output-dir .cartograp
 
 The CLI is backed by Typer and delegates to the `Orchestrator` to run the Surveyor and Hydrologist agents, while the Archivist and Navigator agents power onboarding briefs and navigation commands.
 
+## UI (React + Vite)
+
+A modern, responsive UI lives in `ui/` and provides:
+
+- Live progress and module scope controls
+- Graph visualizations (module growth + dependency flow)
+- Chat bar for codebase questions (blast radius, ownership, gaps)
+- Markdown viewer for README + onboarding briefs
+- LLM provider routing with fallback models + quota switch
+
+### Local dev
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+Create a local env file from the provided template:
+
+```bash
+cp .env.example .env
+```
+
+> Note: the frontend only reads `VITE_*` variables at build time. For production, store secrets on a backend and proxy requests.
+
+## Architecture (High level)
+
+**CLI pipeline**
+
+- `cartography analyze` generates module + lineage graphs in `.cartography/`.
+- `cartography brief` uses the graphs to generate onboarding markdown and summaries.
+
+**UI pipeline**
+
+- Vite + React + TypeScript + Tailwind.
+- Graphs rendered with `recharts` and `reactflow`.
+- Markdown rendered with `react-markdown` + `remark-gfm`.
+- LLM routing settings are local state today; hook to a backend service to persist settings and call providers.
+
+**Suggested integration**
+
+Expose the CLI outputs via a small API layer (e.g., FastAPI) so the UI can stream:
+
+- Progress events from analysis runs
+- Graph JSON from `.cartography/`
+- Generated markdown for README + onboarding briefs
+
 ## Interim delivery (Week 4)
 
 For the **interim delivery (Thursday March 12)**, see **[docs/INTERIM_DELIVERY.md](docs/INTERIM_DELIVERY.md)** for the required Single PDF Report content (checklist, RECONNAISSANCE, architecture, progress, accuracy, gaps, plan). Use [docs/RECONNAISSANCE_TEMPLATE.md](docs/RECONNAISSANCE_TEMPLATE.md) to draft manual Day-One analysis for your chosen target codebase.
-

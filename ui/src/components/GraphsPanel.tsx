@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import ReactFlow, { Background, Controls, MiniMap } from "reactflow";
 import type { GraphPayload } from "../api/cartography";
@@ -8,14 +8,21 @@ import { selectGraphFocus } from "../api/helpers";
 interface GraphsPanelProps {
   moduleGraph?: GraphPayload | null;
   lineageGraph?: GraphPayload | null;
+  focusLineageNodeId?: string | null;
 }
 
 type FlowGraph = "module" | "lineage" | null;
 
-const GraphsPanel = memo(({ moduleGraph, lineageGraph }: GraphsPanelProps) => {
+const GraphsPanel = memo(({ moduleGraph, lineageGraph, focusLineageNodeId }: GraphsPanelProps) => {
   const [fullscreen, setFullscreen] = useState<FlowGraph>(null);
   const focusModule = useMemo(() => selectGraphFocus(moduleGraph, 14), [moduleGraph]);
   const focusLineage = useMemo(() => selectGraphFocus(lineageGraph, 14), [lineageGraph]);
+
+  useEffect(() => {
+    if (focusLineageNodeId) {
+      setFullscreen("lineage");
+    }
+  }, [focusLineageNodeId]);
 
   const flowNodes = useMemo(
     () =>
@@ -57,10 +64,11 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph }: GraphsPanelProps) => {
           color: "#e2e8f0",
           borderRadius: 12,
           padding: 12,
-          border: "1px solid rgba(148,163,184,0.35)"
+          border:
+            node.id === focusLineageNodeId ? "2px solid #f59e0b" : "1px solid rgba(148,163,184,0.35)"
         }
       })),
-    [focusLineage]
+    [focusLineage, focusLineageNodeId]
   );
 
   const lineageEdges = useMemo(
@@ -159,6 +167,20 @@ const GraphsPanel = memo(({ moduleGraph, lineageGraph }: GraphsPanelProps) => {
               >
                 Exit full screen
               </button>
+            </div>
+            <div className="mb-3 flex items-center gap-3 text-[11px] text-graphite-300">
+              <span className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-signal-500" />
+                Module edge
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#7aa5ff]" />
+                Lineage edge
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full border border-graphite-500" />
+                Node
+              </span>
             </div>
             <div className="flex-1 rounded-2xl border border-graphite-800 bg-graphite-900">
               {(fullscreen === "module" ? flowNodes : lineageNodes).length === 0 ? (

@@ -33,6 +33,7 @@ const App = () => {
   const [selectedRun, setSelectedRun] = useState<RunResponse | null>(null);
   const [indexStatus, setIndexStatus] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [focusLineageNodeId, setFocusLineageNodeId] = useState<string | null>(null);
   const [llmConfig, setLlmConfig] = useState({
     provider: "ollama" as LlmProvider,
     model: "llama3.1",
@@ -231,8 +232,15 @@ const App = () => {
                 onScanDepthChange={setScanDepth}
               />
             </div>
-            <GraphsPanel moduleGraph={moduleGraph} lineageGraph={lineageGraph} />
-            <BlastRadiusPanel lineageGraph={lineageGraph} />
+            <GraphsPanel
+              moduleGraph={moduleGraph}
+              lineageGraph={lineageGraph}
+              focusLineageNodeId={focusLineageNodeId}
+            />
+            <BlastRadiusPanel
+              lineageGraph={lineageGraph}
+              onSelectNode={(nodeId) => setFocusLineageNodeId(nodeId)}
+            />
           </div>
 
           <div className="grid gap-6">

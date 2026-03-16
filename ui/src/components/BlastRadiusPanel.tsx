@@ -3,6 +3,7 @@ import type { GraphPayload } from "../api/cartography";
 
 interface BlastRadiusPanelProps {
   lineageGraph?: GraphPayload | null;
+  onSelectNode?: (nodeId: string) => void;
 }
 
 function computeBlastRadius(graph?: GraphPayload | null, limit = 200) {
@@ -42,7 +43,7 @@ function computeBlastRadius(graph?: GraphPayload | null, limit = 200) {
   return scores.slice(0, 6);
 }
 
-const BlastRadiusPanel = memo(({ lineageGraph }: BlastRadiusPanelProps) => {
+const BlastRadiusPanel = memo(({ lineageGraph, onSelectNode }: BlastRadiusPanelProps) => {
   const top = useMemo(() => computeBlastRadius(lineageGraph), [lineageGraph]);
   const maxReach = top[0]?.reach ?? 1;
 
@@ -66,7 +67,11 @@ const BlastRadiusPanel = memo(({ lineageGraph }: BlastRadiusPanelProps) => {
           </div>
         ) : (
           top.map((item) => (
-            <div key={item.id} className="space-y-2">
+            <button
+              key={item.id}
+              onClick={() => onSelectNode?.(item.id)}
+              className="w-full space-y-2 rounded-xl border border-transparent p-2 text-left transition hover:border-signal-500"
+            >
               <div className="flex items-center justify-between text-xs text-graphite-600 dark:text-graphite-200">
                 <span className="truncate">{item.id}</span>
                 <span>{item.reach} downstream</span>
@@ -77,7 +82,7 @@ const BlastRadiusPanel = memo(({ lineageGraph }: BlastRadiusPanelProps) => {
                   style={{ width: `${Math.max(6, (item.reach / maxReach) * 100)}%` }}
                 />
               </div>
-            </div>
+            </button>
           ))
         )}
       </div>

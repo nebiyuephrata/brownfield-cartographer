@@ -5,18 +5,21 @@ interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  source?: "llm" | "heuristic";
 }
 
 const initialMessages: Message[] = [
   {
     id: "m1",
     role: "assistant",
-    content: "Ask about blast radius, ownership gaps, or onboarding steps."
+    content: "Ask about blast radius, ownership gaps, or onboarding steps.",
+    source: "heuristic"
   },
   {
     id: "m2",
     role: "assistant",
-    content: "I can summarize the impact of changing staging models in the last 24 hours."
+    content: "I can summarize the impact of changing staging models in the last 24 hours.",
+    source: "heuristic"
   }
 ];
 
@@ -38,6 +41,8 @@ const ChatPanel = memo(({ outputDir, repoPath, llmConfig }: ChatPanelProps) => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [llmCount, setLlmCount] = useState(0);
+  const [heuristicCount, setHeuristicCount] = useState(0);
 
   const visibleMessages = useMemo(() => messages.slice(-8), [messages]);
 
@@ -86,9 +91,11 @@ const ChatPanel = memo(({ outputDir, repoPath, llmConfig }: ChatPanelProps) => {
           const assistantMessage: Message = {
             id: `a-${Date.now()}`,
             role: "assistant",
-            content: `${answer}\n\n(Answer generated without LLM to save cost.)`
+            content: `${answer}\n\n(Answer generated without LLM to save cost.)`,
+            source: "heuristic"
           };
           setMessages((prev) => [...prev, assistantMessage]);
+          setHeuristicCount((prev) => prev + 1);
           return;
         }
 
@@ -113,14 +120,17 @@ const ChatPanel = memo(({ outputDir, repoPath, llmConfig }: ChatPanelProps) => {
         const assistantMessage: Message = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: `${response.answer}${sourceText}`
+          content: `${response.answer}${sourceText}`,
+          source: "llm"
         };
         setMessages((prev) => [...prev, assistantMessage]);
+        setLlmCount((prev) => prev + 1);
       } catch (error) {
         const assistantMessage: Message = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: error instanceof Error ? error.message : "Unable to reach the analysis service."
+          content: error instanceof Error ? error.message : "Unable to reach the analysis service.",
+          source: "heuristic"
         };
         setMessages((prev) => [...prev, assistantMessage]);
       } finally {
@@ -143,6 +153,14 @@ const ChatPanel = memo(({ outputDir, repoPath, llmConfig }: ChatPanelProps) => {
           {llmConfig.quotaDepleted ? llmConfig.fallbackModel : llmConfig.model}
         </span>
       </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-graphite-500 dark:text-graphite-300">
+        <span className="rounded-full border border-graphite-200 px-3 py-1 dark:border-graphite-700">
+          LLM calls: {llmCount}
+        </span>
+        <span className="rounded-full border border-graphite-200 px-3 py-1 dark:border-graphite-700">
+          Heuristic answers: {heuristicCount}
+        </span>
+      </div>
       <div className="mt-4 flex-1 space-y-3 overflow-y-auto pr-2 scrollbar-hidden">
         {visibleMessages.map((message) => (
           <div
@@ -154,7 +172,28 @@ const ChatPanel = memo(({ outputDir, repoPath, llmConfig }: ChatPanelProps) => {
             }`}
           >
             {message.content}
+            {message.role === "assistant" && message.source ? (
+              <div className="mt-2 text-[10px] uppercase tracking-[0.2em] text-graphite-400">
+                {message.source}
+              </div>
+            ) : null}
           </div>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-graphite-500 dark:text-graphite-300">
+        {[
+          "What is the blast radius?",
+          "Which datasets are critical?",
+          "Where is the main ingestion path?",
+          "Which modules have heavy business logic?"
+        ].map((suggestion) => (
+          <button
+            key={suggestion}
+            onClick={() => setInput(suggestion)}
+            className="rounded-full border border-graphite-200 px-3 py-1 hover:border-signal-500 dark:border-graphite-700"
+          >
+            {suggestion}
+          </button>
         ))}
       </div>
       <div className="mt-4 flex gap-2">

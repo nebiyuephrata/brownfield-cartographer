@@ -16,6 +16,7 @@ import RunHistory from "./components/RunHistory";
 import RunDetail from "./components/RunDetail";
 import BlastRadiusPanel from "./components/BlastRadiusPanel";
 import Toast, { ToastItem } from "./components/Toast";
+import ErrorLogPanel from "./components/ErrorLogPanel";
 
 const App = () => {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
@@ -36,10 +37,15 @@ const App = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [focusLineageNodeId, setFocusLineageNodeId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [errorLog, setErrorLog] = useState<ToastItem[]>([]);
 
   const pushToast = useCallback((message: string, tone: ToastItem["tone"] = "error") => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    setToasts((prev) => [...prev, { id, message, tone }]);
+    const item: ToastItem = { id, message, tone };
+    setToasts((prev) => [...prev, item]);
+    if (tone === "error") {
+      setErrorLog((prev) => [...prev, item]);
+    }
     window.setTimeout(() => {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, 4000);
@@ -164,6 +170,7 @@ const App = () => {
               setStatusMessage(`Analysis complete for ${run.repo_path}`);
               setStatusLabel("Complete");
               setIsRunning(false);
+              pushToast("Analysis complete.", "success");
               break;
             }
             if (current?.status === "failed") {
@@ -171,6 +178,7 @@ const App = () => {
               setStatusMessage(current.error ?? "Run failed.");
               setStatusLabel("Failed");
               setIsRunning(false);
+              pushToast(current.error ?? "Run failed.");
               break;
             }
           } catch {
@@ -218,6 +226,7 @@ const App = () => {
     try {
       const response = await api.indexRepo({ repo_path: selectedRun.repo_path });
       setIndexStatus(`Indexed ${response.indexed_chunks} chunks.`);
+      pushToast(`Indexed ${response.indexed_chunks} chunks.`, "success");
     } catch (error) {
       setIndexStatus(error instanceof Error ? error.message : "Indexing failed.");
       pushToast(error instanceof Error ? error.message : "Indexing failed.");
@@ -277,6 +286,7 @@ const App = () => {
               onIndex={handleIndexRepo}
               indexStatus={indexStatus}
             />
+            <ErrorLogPanel logs={errorLog} />
             <LlmSettings
               provider={llmConfig.provider}
               model={llmConfig.model}

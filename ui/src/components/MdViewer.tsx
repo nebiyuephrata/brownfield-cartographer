@@ -1,14 +1,21 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { api } from "../api/cartography";
 import { sampleOnboarding, sampleReadme } from "../data/mock";
 
-const MdViewer = memo(() => {
+interface MdViewerProps {
+  repoPath?: string | null;
+  outputDir?: string | null;
+}
+
+const MdViewer = memo(({ repoPath, outputDir }: MdViewerProps) => {
   const [activeTab, setActiveTab] = useState<"readme" | "onboarding">("readme");
   const [content, setContent] = useState({
     readme: sampleReadme,
     onboarding: sampleOnboarding
   });
+  const [status, setStatus] = useState<string | null>(null);
 
   const activeContent = useMemo(() => content[activeTab], [content, activeTab]);
 
@@ -23,6 +30,24 @@ const MdViewer = memo(() => {
     reader.readAsText(file);
   }, [activeTab]);
 
+  const handleRefresh = useCallback(async () => {
+    setStatus(null);
+    try {
+      if (activeTab === "readme") {
+        if (!repoPath) throw new Error("Provide a repo path and run analysis first.");
+        const response = await api.readme(repoPath);
+        setContent((prev) => ({ ...prev, readme: response.content }));
+      } else {
+        if (!outputDir) throw new Error("Run analysis to generate onboarding brief.");
+        const response = await api.onboarding(outputDir);
+        setContent((prev) => ({ ...prev, onboarding: response.content }));
+      }
+      setStatus("Loaded from API.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to load markdown.");
+    }
+  }, [activeTab, outputDir, repoPath]);
+
   return (
     <section className="glass flex h-full flex-col rounded-2xl p-5">
       <div className="flex items-center justify-between">
@@ -30,10 +55,18 @@ const MdViewer = memo(() => {
           <h2 className="text-sm font-semibold text-graphite-700 dark:text-graphite-100">Markdown viewer</h2>
           <p className="text-xs text-graphite-500 dark:text-graphite-300">Read README and onboarding briefs inline.</p>
         </div>
-        <label className="rounded-xl border border-graphite-200 bg-white/80 px-3 py-2 text-xs font-semibold text-graphite-700 hover:border-signal-500 dark:border-graphite-700 dark:bg-graphite-900/60 dark:text-graphite-200">
-          Load Markdown
-          <input type="file" accept=".md" className="hidden" onChange={handleLoadFile} />
-        </label>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            className="rounded-xl border border-graphite-200 bg-white/80 px-3 py-2 text-xs font-semibold text-graphite-700 hover:border-signal-500 dark:border-graphite-700 dark:bg-graphite-900/60 dark:text-graphite-200"
+          >
+            Refresh
+          </button>
+          <label className="rounded-xl border border-graphite-200 bg-white/80 px-3 py-2 text-xs font-semibold text-graphite-700 hover:border-signal-500 dark:border-graphite-700 dark:bg-graphite-900/60 dark:text-graphite-200">
+            Load Markdown
+            <input type="file" accept=".md" className="hidden" onChange={handleLoadFile} />
+          </label>
+        </div>
       </div>
       <div className="mt-4 flex gap-2">
         <button
@@ -60,6 +93,7 @@ const MdViewer = memo(() => {
       <div className="mt-4 flex-1 overflow-y-auto rounded-2xl bg-white/80 p-4 text-xs text-graphite-700 shadow-sm dark:bg-graphite-900/70 dark:text-graphite-100">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{activeContent}</ReactMarkdown>
       </div>
+      {status ? <p className="mt-2 text-[11px] text-graphite-500 dark:text-graphite-300">{status}</p> : null}
     </section>
   );
 });

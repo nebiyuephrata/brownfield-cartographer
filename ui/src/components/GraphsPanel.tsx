@@ -1,14 +1,23 @@
 import { memo, useMemo } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import ReactFlow, { Background, Controls, MiniMap } from "reactflow";
-import { activitySeries, moduleEdges, moduleNodes } from "../data/mock";
+import type { GraphPayload } from "../api/cartography";
+import { activitySeries } from "../data/mock";
+import { selectGraphFocus } from "../api/helpers";
 
-const GraphsPanel = memo(() => {
+interface GraphsPanelProps {
+  moduleGraph?: GraphPayload | null;
+  lineageGraph?: GraphPayload | null;
+}
+
+const GraphsPanel = memo(({ moduleGraph, lineageGraph }: GraphsPanelProps) => {
+  const focusGraph = useMemo(() => selectGraphFocus(moduleGraph, 12), [moduleGraph]);
+
   const flowNodes = useMemo(
     () =>
-      moduleNodes.map((node, index) => ({
+      (focusGraph?.nodes ?? []).map((node, index) => ({
         id: node.id,
-        data: { label: node.label },
+        data: { label: String(node.id) },
         position: { x: 50 + index * 120, y: 50 + (index % 2) * 120 },
         style: {
           background: "#0f172a",
@@ -18,17 +27,19 @@ const GraphsPanel = memo(() => {
           border: "1px solid rgba(148,163,184,0.35)"
         }
       })),
-    []
+    [focusGraph]
   );
 
   const flowEdges = useMemo(
     () =>
-      moduleEdges.map((edge) => ({
-        ...edge,
+      (focusGraph?.edges ?? []).map((edge, index) => ({
+        id: `edge-${index}`,
+        source: edge.source,
+        target: edge.target,
         animated: true,
         style: { stroke: "#52e1b2" }
       })),
-    []
+    [focusGraph]
   );
 
   return (
@@ -38,9 +49,14 @@ const GraphsPanel = memo(() => {
           <h2 className="text-sm font-semibold text-graphite-700 dark:text-graphite-100">Graph signals</h2>
           <p className="text-xs text-graphite-500 dark:text-graphite-300">Module growth and dependency health.</p>
         </div>
-        <span className="rounded-full border border-graphite-200 px-3 py-1 text-xs text-graphite-600 dark:border-graphite-700 dark:text-graphite-200">
-          82 edges mapped
-        </span>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="rounded-full border border-graphite-200 px-3 py-1 text-graphite-600 dark:border-graphite-700 dark:text-graphite-200">
+            {moduleGraph?.edges?.length ?? 0} module edges
+          </span>
+          <span className="rounded-full border border-graphite-200 px-3 py-1 text-graphite-600 dark:border-graphite-700 dark:text-graphite-200">
+            {lineageGraph?.edges?.length ?? 0} lineage edges
+          </span>
+        </div>
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
         <div className="h-56 rounded-2xl bg-white/80 p-3 dark:bg-graphite-900/70">

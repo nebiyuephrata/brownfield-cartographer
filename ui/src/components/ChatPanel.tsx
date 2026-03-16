@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
+import { api } from "../api/cartography";
 
 interface Message {
   id: string;
@@ -19,27 +20,54 @@ const initialMessages: Message[] = [
   }
 ];
 
-const ChatPanel = memo(() => {
+interface ChatPanelProps {
+  outputDir?: string | null;
+}
+
+const ChatPanel = memo(({ outputDir }: ChatPanelProps) => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
 
   const visibleMessages = useMemo(() => messages.slice(-8), [messages]);
 
   const handleSend = useCallback(() => {
-    if (!input.trim()) return;
+    if (!input.trim() || isSending) return;
     const userMessage: Message = {
       id: `u-${Date.now()}`,
       role: "user",
       content: input.trim()
     };
-    const assistantMessage: Message = {
-      id: `a-${Date.now()}`,
-      role: "assistant",
-      content: "Drafting response based on the latest module graph..."
-    };
-    setMessages((prev) => [...prev, userMessage, assistantMessage]);
+    setMessages((prev) => [...prev, userMessage]);
     setInput("");
-  }, [input]);
+    setIsSending(true);
+
+    const submit = async () => {
+      try {
+        if (!outputDir) {
+          throw new Error("Run analysis first to enable chat insights.");
+        }
+        const response = await api.chat({ question: userMessage.content, output_dir: outputDir });
+        const assistantMessage: Message = {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: response.answer
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+      } catch (error) {
+        const assistantMessage: Message = {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: error instanceof Error ? error.message : "Unable to reach the analysis service."
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+      } finally {
+        setIsSending(false);
+      }
+    };
+
+    void submit();
+  }, [input, isSending, outputDir]);
 
   return (
     <section className="glass flex h-full flex-col rounded-2xl p-5">
@@ -80,9 +108,10 @@ const ChatPanel = memo(() => {
         />
         <button
           onClick={handleSend}
+          disabled={isSending}
           className="rounded-xl bg-signal-500 px-4 py-2 text-xs font-semibold text-graphite-900 transition hover:translate-y-[-1px]"
         >
-          Send
+          {isSending ? "Sending..." : "Send"}
         </button>
       </div>
     </section>

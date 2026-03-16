@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { api } from "./api/cartography";
 import ChatPanel from "./components/ChatPanel";
 import GraphsPanel from "./components/GraphsPanel";
 import LlmSettings from "./components/LlmSettings";
@@ -8,13 +9,20 @@ import ProgressPanel from "./components/ProgressPanel";
 import RepoInput from "./components/RepoInput";
 import TopBar from "./components/TopBar";
 import { progressSteps as initialSteps } from "./data/mock";
+import type { GraphPayload, ProgressStep } from "./api/cartography";
+import { deriveGraphSummary } from "./api/helpers";
 
 const App = () => {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [repoUrl, setRepoUrl] = useState("https://github.com/your-org/analytics-repo");
   const [moduleCount, setModuleCount] = useState(48);
   const [scanDepth, setScanDepth] = useState(3);
-  const [steps, setSteps] = useState(initialSteps);
+  const [steps, setSteps] = useState<ProgressStep[]>(initialSteps);
+  const [outputDir, setOutputDir] = useState<string | null>(null);
+  const [resolvedRepoPath, setResolvedRepoPath] = useState<string | null>(null);
+  const [moduleGraph, setModuleGraph] = useState<GraphPayload | null>(null);
+  const [lineageGraph, setLineageGraph] = useState<GraphPayload | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("cartography-theme");
@@ -29,26 +37,55 @@ const App = () => {
   }, [theme]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      setSteps((prev) =>
-        prev.map((step) => {
-          const variance = Math.random() * 6 - 3;
-          const next = Math.max(12, Math.min(100, step.progress + variance));
-          return { ...step, progress: Math.round(next) };
-        })
-      );
+    if (!outputDir) return;
+    const interval = window.setInterval(async () => {
+      try {
+        const progress = await api.progress(outputDir);
+        setSteps(progress.steps);
+      } catch {
+        // keep last known steps on errors
+      }
     }, 2200);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [outputDir]);
+
+  useEffect(() => {
+    if (!outputDir) return;
+    const fetchGraphs = async () => {
+      try {
+        const [module, lineage] = await Promise.all([api.moduleGraph(outputDir), api.lineageGraph(outputDir)]);
+        setModuleGraph(module);
+        setLineageGraph(lineage);
+      } catch {
+        // ignore for now
+      }
+    };
+    void fetchGraphs();
+  }, [outputDir]);
 
   const overallProgress = useMemo(
     () => Math.round(steps.reduce((acc, step) => acc + step.progress, 0) / steps.length),
     [steps]
   );
 
-  const handleAnalyze = useCallback(() => {
-    setSteps((prev) => prev.map((step) => ({ ...step, progress: Math.min(100, step.progress + 8) })));
-  }, []);
+  const handleAnalyze = useCallback(async () => {
+    setStatusMessage(null);
+    try {
+      const response = await api.analyze({ repo_path: repoUrl, output_dir: ".cartography" });
+      setOutputDir(response.output_dir);
+      setResolvedRepoPath(response.repo_path);
+      setStatusMessage(`Analysis complete for ${response.repo_path}`);
+      setSteps((prev) => prev.map((step) => ({ ...step, progress: 100 })));
+      const [module, lineage] = await Promise.all([
+        api.moduleGraph(response.output_dir),
+        api.lineageGraph(response.output_dir)
+      ]);
+      setModuleGraph(module);
+      setLineageGraph(lineage);
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Failed to run analysis.");
+    }
+  }, [repoUrl]);
 
   return (
     <div className="min-h-screen bg-graphite-50 bg-grid bg-[length:24px_24px] px-4 py-6 text-graphite-900 dark:bg-graphite-900 dark:text-graphite-50">
@@ -67,15 +104,20 @@ const App = () => {
                 onScanDepthChange={setScanDepth}
               />
             </div>
-            <GraphsPanel />
+            <GraphsPanel moduleGraph={moduleGraph} lineageGraph={lineageGraph} />
           </div>
 
           <div className="grid gap-6">
-            <ChatPanel />
-            <MdViewer />
+            <ChatPanel outputDir={outputDir} />
+            <MdViewer repoPath={resolvedRepoPath ?? repoUrl} outputDir={outputDir} />
             <LlmSettings />
           </div>
         </div>
+        {statusMessage ? (
+          <div className="rounded-2xl bg-white/80 px-5 py-3 text-xs text-graphite-600 shadow-sm dark:bg-graphite-900/60 dark:text-graphite-200">
+            {statusMessage} · Graphs: {deriveGraphSummary(moduleGraph).nodes} nodes / {deriveGraphSummary(moduleGraph).edges} edges
+          </div>
+        ) : null}
       </div>
     </div>
   );

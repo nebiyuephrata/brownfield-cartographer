@@ -77,6 +77,23 @@ cp .env.example .env
 
 > Note: the frontend only reads `VITE_*` variables at build time. For production, store secrets on a backend and proxy requests.
 
+### API service (optional but recommended)
+
+The UI expects a small API to run analysis and serve graph/markdown outputs:
+
+```bash
+pip install -e ".[api]"
+cartography-api
+```
+
+Environment:
+
+- `CARTOGRAPHY_API_PORT` (default `8000`)
+- `CARTOGRAPHY_UI_ORIGINS` (comma-separated, default `*`)
+- `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OLLAMA_MODEL`, `OLLAMA_HOST` (if you want semantic summaries)
+
+Then set `VITE_API_BASE_URL` in `ui/.env` to match the API host.
+
 ## Architecture (High level)
 
 **CLI pipeline**

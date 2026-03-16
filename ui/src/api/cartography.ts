@@ -44,6 +44,20 @@ export interface ChatResponse {
   hints: string[];
 }
 
+export interface RunResponse {
+  run_id: string;
+  status: string;
+  repo_path: string;
+  output_dir: string;
+  started_at: string;
+  completed_at?: string | null;
+  error?: string | null;
+}
+
+export interface RunListResponse {
+  runs: RunResponse[];
+}
+
 export interface EnvUpdateResponse {
   status: string;
   path: string;
@@ -100,5 +114,12 @@ export const api = {
     fetchJson<EnvUpdateResponse>("/settings/env", {
       method: "POST",
       body: JSON.stringify(payload)
-    })
+    }),
+  startRun: (payload: { repo_path: string; output_dir?: string; run_lineage?: boolean; run_semantic?: boolean }) =>
+    fetchJson<RunResponse>("/runs", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  listRuns: (outputDir: string) =>
+    fetchJson<RunListResponse>(`/runs?output_dir=${encodeURIComponent(outputDir)}`)
 };

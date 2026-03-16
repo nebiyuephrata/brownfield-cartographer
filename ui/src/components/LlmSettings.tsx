@@ -188,13 +188,13 @@ const LlmSettings = memo(
           </div>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl bg-graphite-900 p-3 text-[11px] text-graphite-100 dark:bg-graphite-950">
+          <div className="min-h-28 max-h-72 resize-y overflow-auto rounded-2xl bg-graphite-900 p-3 text-[11px] text-graphite-100 dark:bg-graphite-950">
             <div className="mb-2 text-[10px] uppercase tracking-[0.2em] text-graphite-400">Frontend .env</div>
-            <pre className="whitespace-pre-wrap">{frontendEnvPreview}</pre>
+            <pre className="whitespace-pre-wrap break-words">{frontendEnvPreview}</pre>
           </div>
-          <div className="rounded-2xl bg-graphite-900 p-3 text-[11px] text-graphite-100 dark:bg-graphite-950">
+          <div className="min-h-28 max-h-72 resize-y overflow-auto rounded-2xl bg-graphite-900 p-3 text-[11px] text-graphite-100 dark:bg-graphite-950">
             <div className="mb-2 text-[10px] uppercase tracking-[0.2em] text-graphite-400">Backend .env</div>
-            <pre className="whitespace-pre-wrap">{backendEnvPreview}</pre>
+            <pre className="whitespace-pre-wrap break-words">{backendEnvPreview}</pre>
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-graphite-500 dark:text-graphite-300">

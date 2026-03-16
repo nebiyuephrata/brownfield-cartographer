@@ -6,9 +6,11 @@ interface RunDetailProps {
   moduleCount: number;
   lineageCount: number;
   onLoadGraphs?: () => void;
+  onIndex?: () => void;
+  indexStatus?: string | null;
 }
 
-const RunDetail = memo(({ run, moduleCount, lineageCount, onLoadGraphs }: RunDetailProps) => {
+const RunDetail = memo(({ run, moduleCount, lineageCount, onLoadGraphs, onIndex, indexStatus }: RunDetailProps) => {
   if (!run) {
     return (
       <section className="glass rounded-2xl p-5">
@@ -27,12 +29,20 @@ const RunDetail = memo(({ run, moduleCount, lineageCount, onLoadGraphs }: RunDet
           <h2 className="text-sm font-semibold text-graphite-700 dark:text-graphite-100">Run detail</h2>
           <p className="text-xs text-graphite-500 dark:text-graphite-300">Run id: {run.run_id}</p>
         </div>
-        <button
-          onClick={onLoadGraphs}
-          className="rounded-full border border-graphite-200 px-3 py-1 text-xs font-semibold text-graphite-600 hover:border-signal-500 dark:border-graphite-700 dark:text-graphite-200"
-        >
-          Load graphs
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onLoadGraphs}
+            className="rounded-full border border-graphite-200 px-3 py-1 text-xs font-semibold text-graphite-600 hover:border-signal-500 dark:border-graphite-700 dark:text-graphite-200"
+          >
+            Load graphs
+          </button>
+          <button
+            onClick={onIndex}
+            className="rounded-full bg-signal-500 px-3 py-1 text-xs font-semibold text-graphite-900"
+          >
+            Index repo
+          </button>
+        </div>
       </div>
       <div className="mt-4 grid gap-3 text-xs text-graphite-600 dark:text-graphite-200">
         <div>
@@ -67,6 +77,9 @@ const RunDetail = memo(({ run, moduleCount, lineageCount, onLoadGraphs }: RunDet
             Lineage nodes: {lineageCount}
           </span>
         </div>
+        {indexStatus ? (
+          <div className="text-[11px] text-graphite-500 dark:text-graphite-300">{indexStatus}</div>
+        ) : null}
       </div>
     </section>
   );

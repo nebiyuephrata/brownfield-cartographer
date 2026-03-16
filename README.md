@@ -112,6 +112,20 @@ export CARTOGRAPHY_DB_URL=\"postgresql+psycopg://user:pass@localhost:5432/cartog
 
 If you pass a GitHub URL to the API, the repo is cloned into a temp directory. The API now deletes that temp folder after the run completes.
 
+### Retrieval (RAG) indexing
+
+You can index a repo for semantic search using the API:
+
+```bash
+curl -X POST http://localhost:8000/index -H "Content-Type: application/json" \\
+  -d '{"repo_path":"/path/to/repo"}'
+```
+
+The index uses Ollama embeddings by default. Configure:
+
+- `CARTOGRAPHY_EMBED_MODEL` (default `nomic-embed-text`)
+- `OLLAMA_HOST` (default `http://127.0.0.1:11434`)
+
 ## Architecture (High level)
 
 **CLI pipeline**

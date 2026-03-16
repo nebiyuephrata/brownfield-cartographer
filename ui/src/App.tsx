@@ -30,6 +30,7 @@ const App = () => {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<RunResponse[]>([]);
   const [selectedRun, setSelectedRun] = useState<RunResponse | null>(null);
+  const [indexStatus, setIndexStatus] = useState<string | null>(null);
   const [llmConfig, setLlmConfig] = useState({
     provider: "ollama" as LlmProvider,
     model: "llama3.1",
@@ -104,7 +105,7 @@ const App = () => {
     setStatusMessage(null);
     try {
       setStatusLabel("Queued");
-      const run = await api.startRun({ repo_path: repoUrl, output_dir: ".cartography" });
+      const run = await api.startRun({ repo_path: repoUrl, output_dir: ".cartography", enable_index: false });
       setActiveRunId(run.run_id);
       setSelectedRun(run);
       setOutputDir(run.output_dir);
@@ -191,6 +192,17 @@ const App = () => {
     }
   }, [selectedRun]);
 
+  const handleIndexRepo = useCallback(async () => {
+    if (!selectedRun) return;
+    setIndexStatus("Indexing repository...");
+    try {
+      const response = await api.indexRepo({ repo_path: selectedRun.repo_path });
+      setIndexStatus(`Indexed ${response.indexed_chunks} chunks.`);
+    } catch (error) {
+      setIndexStatus(error instanceof Error ? error.message : "Indexing failed.");
+    }
+  }, [selectedRun]);
+
   return (
     <div className="min-h-screen bg-graphite-50 bg-grid bg-[length:24px_24px] px-4 py-6 text-graphite-900 dark:bg-graphite-900 dark:text-graphite-50">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -216,7 +228,7 @@ const App = () => {
           </div>
 
           <div className="grid gap-6">
-            <ChatPanel outputDir={outputDir} llmConfig={llmConfig} />
+            <ChatPanel outputDir={outputDir} repoPath={resolvedRepoPath ?? repoUrl} llmConfig={llmConfig} />
             <MdViewer repoPath={resolvedRepoPath ?? repoUrl} outputDir={outputDir} />
             <RunHistory runs={runHistory} activeRunId={activeRunId} onSelect={handleSelectRun} />
             <RunDetail
@@ -224,6 +236,8 @@ const App = () => {
               moduleCount={moduleGraph?.nodes?.length ?? 0}
               lineageCount={lineageGraph?.nodes?.length ?? 0}
               onLoadGraphs={handleLoadRunGraphs}
+              onIndex={handleIndexRepo}
+              indexStatus={indexStatus}
             />
             <LlmSettings
               provider={llmConfig.provider}

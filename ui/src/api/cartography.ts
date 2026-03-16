@@ -42,6 +42,7 @@ export interface DayOneInsights {
 export interface ChatResponse {
   answer: string;
   hints: string[];
+  sources?: string[];
 }
 
 export interface RunResponse {
@@ -97,6 +98,8 @@ export const api = {
   chat: (payload: {
     question: string;
     output_dir: string;
+    repo_path?: string;
+    top_k?: number;
     provider?: string;
     model?: string;
     fallback_provider?: string;
@@ -115,11 +118,27 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  startRun: (payload: { repo_path: string; output_dir?: string; run_lineage?: boolean; run_semantic?: boolean }) =>
+  startRun: (payload: {
+    repo_path: string;
+    output_dir?: string;
+    run_lineage?: boolean;
+    run_semantic?: boolean;
+    enable_index?: boolean;
+  }) =>
     fetchJson<RunResponse>("/runs", {
       method: "POST",
       body: JSON.stringify(payload)
     }),
   listRuns: (outputDir: string) =>
-    fetchJson<RunListResponse>(`/runs?output_dir=${encodeURIComponent(outputDir)}`)
+    fetchJson<RunListResponse>(`/runs?output_dir=${encodeURIComponent(outputDir)}`),
+  indexRepo: (payload: { repo_path: string; ignore_globs?: string[] }) =>
+    fetchJson<{ indexed_chunks: number }>("/index", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  searchRepo: (payload: { repo_path: string; query: string; top_k?: number }) =>
+    fetchJson<{ results: Array<{ file_path: string; content: string }> }>("/search", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    })
 };

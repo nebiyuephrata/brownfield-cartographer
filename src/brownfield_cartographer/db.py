@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import Column, DateTime, String, create_engine
+from sqlalchemy import Column, DateTime, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -44,6 +44,17 @@ class Run(Base):
     started_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     error = Column(String, nullable=True)
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    repo_path = Column(String, nullable=False, index=True)
+    file_path = Column(String, nullable=False)
+    chunk_index = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(Text, nullable=True)
 
 
 _ensure_sqlite_dir(DB_URL)

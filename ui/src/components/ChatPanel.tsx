@@ -22,6 +22,7 @@ const initialMessages: Message[] = [
 
 interface ChatPanelProps {
   outputDir?: string | null;
+  repoPath?: string | null;
   llmConfig: {
     provider: string;
     model: string;
@@ -33,7 +34,7 @@ interface ChatPanelProps {
   };
 }
 
-const ChatPanel = memo(({ outputDir, llmConfig }: ChatPanelProps) => {
+const ChatPanel = memo(({ outputDir, repoPath, llmConfig }: ChatPanelProps) => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -59,6 +60,8 @@ const ChatPanel = memo(({ outputDir, llmConfig }: ChatPanelProps) => {
         const response = await api.chat({
           question: userMessage.content,
           output_dir: outputDir,
+          repo_path: repoPath ?? undefined,
+          top_k: 6,
           provider: llmConfig.provider,
           model: llmConfig.model,
           fallback_provider: llmConfig.fallbackProvider,
@@ -68,10 +71,14 @@ const ChatPanel = memo(({ outputDir, llmConfig }: ChatPanelProps) => {
           base_url: llmConfig.baseUrl,
           quota_depleted: llmConfig.quotaDepleted
         });
+        const sourceText =
+          response.sources && response.sources.length > 0
+            ? `\n\nSources:\n${response.sources.slice(0, 4).join("\n")}`
+            : "";
         const assistantMessage: Message = {
           id: `a-${Date.now()}`,
           role: "assistant",
-          content: response.answer
+          content: `${response.answer}${sourceText}`
         };
         setMessages((prev) => [...prev, assistantMessage]);
       } catch (error) {
@@ -87,7 +94,7 @@ const ChatPanel = memo(({ outputDir, llmConfig }: ChatPanelProps) => {
     };
 
     void submit();
-  }, [input, isSending, outputDir, llmConfig]);
+  }, [input, isSending, outputDir, repoPath, llmConfig]);
 
   return (
     <section className="glass flex h-full flex-col rounded-2xl p-5">

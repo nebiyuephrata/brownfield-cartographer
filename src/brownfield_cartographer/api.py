@@ -24,6 +24,7 @@ from .agents.semanticist import DayOneSemanticist
 from .cli import _load_dotenv, _resolve_repo_path, _iter_env_paths, GITHUB_URL_PATTERN
 from .db import Run, get_session, init_db
 from .graph.knowledge_graph import KnowledgeGraph
+from .rag import index_repo, search_repo
 from .orchestrator import Orchestrator
 
 
@@ -63,6 +64,8 @@ class ProgressResponse(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     output_dir: str = ".cartography"
+    repo_path: Optional[str] = None
+    top_k: int = 6
     provider: Optional[str] = None
     model: Optional[str] = None
     fallback_provider: Optional[str] = None
@@ -76,6 +79,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     hints: List[str]
+    sources: List[str] = Field(default_factory=list)
 
 
 class RunRequest(BaseModel):
@@ -83,6 +87,7 @@ class RunRequest(BaseModel):
     output_dir: str = ".cartography"
     run_lineage: bool = True
     run_semantic: bool = True
+    enable_index: bool = False
     ignore_globs: List[str] = Field(default_factory=list)
 
 
@@ -98,6 +103,25 @@ class RunResponse(BaseModel):
 
 class RunListResponse(BaseModel):
     runs: List[RunResponse]
+
+
+class IndexRequest(BaseModel):
+    repo_path: str
+    ignore_globs: List[str] = Field(default_factory=list)
+
+
+class IndexResponse(BaseModel):
+    indexed_chunks: int
+
+
+class SearchRequest(BaseModel):
+    repo_path: str
+    query: str
+    top_k: int = 6
+
+
+class SearchResponse(BaseModel):
+    results: List[Dict[str, str]]
 
 
 app = FastAPI(title="Brownfield Cartographer API")
@@ -289,6 +313,21 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     )
 
 
+@app.post("/index", response_model=IndexResponse)
+def build_index(request: IndexRequest) -> IndexResponse:
+    repo_path = _resolve_repo_path(request.repo_path)
+    indexed = index_repo(repo_path, request.ignore_globs)
+    return IndexResponse(indexed_chunks=indexed)
+
+
+@app.post("/search", response_model=SearchResponse)
+def search(request: SearchRequest) -> SearchResponse:
+    repo_path = _resolve_repo_path(request.repo_path)
+    results = search_repo(repo_path, request.query, request.top_k)
+    payload = [{"file_path": path, "content": content} for path, content in results]
+    return SearchResponse(results=payload)
+
+
 def _run_analysis_job(run_id: str, request: RunRequest) -> None:
     _load_dotenv()
     temp_clone: Optional[Path] = None
@@ -319,6 +358,8 @@ def _run_analysis_job(run_id: str, request: RunRequest) -> None:
             orchestrator.run_hydrologist()
         if request.run_semantic:
             orchestrator.run_semanticist()
+        if request.enable_index:
+            index_repo(repo_path, request.ignore_globs)
 
         completed_at = _now_iso()
         updates = {"status": "complete", "completed_at": completed_at}
@@ -625,6 +666,23 @@ def chat(request: ChatRequest) -> ChatResponse:
     provider, model, fallback_provider, fallback_model, api_key, fallback_api_key = _resolve_llm_config(request)
     base_url = request.base_url or os.getenv("CARTOGRAPHY_LLM_BASE_URL") or os.getenv("OLLAMA_HOST")
 
+    repo_path = None
+    if request.repo_path:
+        try:
+            repo_path = _resolve_repo_path(request.repo_path)
+        except Exception:
+            repo_path = None
+
+    sources: List[str] = []
+    retrieved_chunks: List[str] = []
+    if repo_path:
+        matches = search_repo(repo_path, request.question, request.top_k)
+        for path, content in matches:
+            sources.append(path)
+            retrieved_chunks.append(content)
+
+    context_block = "\n\n".join(retrieved_chunks[: request.top_k]) if retrieved_chunks else ""
+
     prompt = (
         "Use the following onboarding intelligence to answer the question.\n\n"
         f"Main ingestion path: {answers['main_ingestion_path']}\n"
@@ -632,6 +690,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         f"Blast radius: {answers['blast_radius']}\n"
         f"Business logic locations: {answers['business_logic_locations']}\n"
         f"Most active files: {answers['most_active_files']}\n\n"
+        f"Code excerpts (if available):\n{context_block}\n\n"
         f"Question: {request.question}\n"
         "Answer in 2-4 concise sentences."
     )
@@ -673,7 +732,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         "Ask which modules contain business logic",
         "Ask which datasets are most critical",
     ]
-    return ChatResponse(answer=response_text, hints=hints)
+    return ChatResponse(answer=response_text, hints=hints, sources=sources)
 
 
 def run() -> None:

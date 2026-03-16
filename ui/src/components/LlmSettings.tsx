@@ -36,7 +36,7 @@ const LlmSettings = memo(
     }, [provider, model, fallbackProvider, fallbackModel, baseUrl, apiKey]);
 
     const backendEnvPreview = useMemo(() => {
-      return [
+      const lines = [
         `CARTOGRAPHY_LLM_PROVIDER=${provider}`,
         `CARTOGRAPHY_LLM_MODEL=${model}`,
         `CARTOGRAPHY_LLM_FALLBACK_PROVIDER=${fallbackProvider}`,
@@ -44,7 +44,16 @@ const LlmSettings = memo(
         `CARTOGRAPHY_LLM_BASE_URL=${baseUrl}`,
         `CARTOGRAPHY_LLM_API_KEY=${apiKey || "your_api_key_here"}`,
         `CARTOGRAPHY_LLM_FALLBACK_API_KEY=${apiKey || "your_api_key_here"}`
-      ].join("\n");
+      ];
+      if (provider !== "ollama") {
+        lines.push(`OPENROUTER_API_KEY=${apiKey || "your_api_key_here"}`);
+        lines.push(`OPENROUTER_MODEL=${model}`);
+        lines.push(`OPENROUTER_BASE_URL=https://openrouter.ai/api/v1`);
+      } else {
+        lines.push(`OLLAMA_MODEL=${model}`);
+        lines.push(`OLLAMA_HOST=${baseUrl}`);
+      }
+      return lines.join("\n");
     }, [provider, model, fallbackProvider, fallbackModel, baseUrl, apiKey]);
 
     const handleCopyEnv = useCallback(async (text: string) => {
@@ -69,6 +78,7 @@ const LlmSettings = memo(
         } else if (apiKey) {
           values.OPENROUTER_API_KEY = apiKey;
           values.OPENROUTER_MODEL = model;
+          values.OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
         }
         await api.saveEnv({ values });
         setSaveStatus("Saved to backend .env.");

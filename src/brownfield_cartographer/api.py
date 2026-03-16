@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import threading
 import time
 import uuid
+import tempfile
+import shutil
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from .agents.semanticist import DayOneSemanticist
-from .cli import _load_dotenv, _resolve_repo_path, _iter_env_paths
+from .cli import _load_dotenv, _resolve_repo_path, _iter_env_paths, GITHUB_URL_PATTERN
 from .db import Run, get_session, init_db
 from .graph.knowledge_graph import KnowledgeGraph
 from .orchestrator import Orchestrator
@@ -123,6 +125,20 @@ def _now_iso() -> str:
 
     return datetime.now(timezone.utc).isoformat()
 
+
+def _is_github_url(repo_path: str) -> bool:
+    return GITHUB_URL_PATTERN.match(repo_path.strip()) is not None
+
+
+def _is_temp_clone(original_repo: str, resolved_repo: Path) -> bool:
+    if not _is_github_url(original_repo):
+        return False
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    try:
+        resolved = resolved_repo.resolve()
+    except Exception:
+        return False
+    return resolved.is_dir() and str(resolved).startswith(str(temp_root)) and resolved.name.startswith("cartography_repo_")
 
 def _run_to_response(run: Run) -> RunResponse:
     return RunResponse(
@@ -275,9 +291,12 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
 
 def _run_analysis_job(run_id: str, request: RunRequest) -> None:
     _load_dotenv()
+    temp_clone: Optional[Path] = None
     try:
         repo_path = _resolve_repo_path(request.repo_path)
         output_dir = _resolve_output_dir(request.output_dir)
+        if _is_temp_clone(request.repo_path, repo_path):
+            temp_clone = repo_path
         with RUNS_LOCK:
             RUNS[run_id]["repo_path"] = str(repo_path)
             RUNS[run_id]["output_dir"] = str(output_dir)
@@ -327,6 +346,9 @@ def _run_analysis_job(run_id: str, request: RunRequest) -> None:
                     session.commit()
         except SQLAlchemyError:
             pass
+    finally:
+        if temp_clone and temp_clone.exists():
+            shutil.rmtree(temp_clone, ignore_errors=True)
 
 
 @app.post("/runs", response_model=RunResponse)

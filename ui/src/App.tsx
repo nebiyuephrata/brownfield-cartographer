@@ -13,6 +13,7 @@ import type { GraphPayload, ProgressStep, RunResponse } from "./api/cartography"
 import { deriveGraphSummary } from "./api/helpers";
 import type { LlmProvider } from "./data/providers";
 import RunHistory from "./components/RunHistory";
+import RunDetail from "./components/RunDetail";
 
 const App = () => {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
@@ -28,6 +29,7 @@ const App = () => {
   const [statusLabel, setStatusLabel] = useState("Idle");
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<RunResponse[]>([]);
+  const [selectedRun, setSelectedRun] = useState<RunResponse | null>(null);
   const [llmConfig, setLlmConfig] = useState({
     provider: "ollama" as LlmProvider,
     model: "llama3.1",
@@ -104,6 +106,7 @@ const App = () => {
       setStatusLabel("Queued");
       const run = await api.startRun({ repo_path: repoUrl, output_dir: ".cartography" });
       setActiveRunId(run.run_id);
+      setSelectedRun(run);
       setOutputDir(run.output_dir);
       setResolvedRepoPath(run.repo_path);
       setStatusMessage(`Run started for ${run.repo_path}`);
@@ -135,6 +138,7 @@ const App = () => {
             setRunHistory(response.runs);
             const current = response.runs.find((entry) => entry.run_id === run.run_id);
             if (current?.status === "complete") {
+              setSelectedRun(current);
               const [module, lineage] = await Promise.all([
                 api.moduleGraph(run.output_dir),
                 api.lineageGraph(run.output_dir)
@@ -146,6 +150,7 @@ const App = () => {
               break;
             }
             if (current?.status === "failed") {
+              setSelectedRun(current);
               setStatusMessage(current.error ?? "Run failed.");
               setStatusLabel("Failed");
               break;
@@ -162,6 +167,29 @@ const App = () => {
       setStatusLabel("Failed");
     }
   }, [repoUrl]);
+
+  const handleSelectRun = useCallback((run: RunResponse) => {
+    setSelectedRun(run);
+    setActiveRunId(run.run_id);
+    setOutputDir(run.output_dir);
+    setResolvedRepoPath(run.repo_path);
+    setStatusLabel(run.status);
+  }, []);
+
+  const handleLoadRunGraphs = useCallback(async () => {
+    if (!selectedRun) return;
+    try {
+      const [module, lineage] = await Promise.all([
+        api.moduleGraph(selectedRun.output_dir),
+        api.lineageGraph(selectedRun.output_dir)
+      ]);
+      setModuleGraph(module);
+      setLineageGraph(lineage);
+      setStatusMessage(`Loaded graphs for ${selectedRun.repo_path}`);
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Failed to load run graphs.");
+    }
+  }, [selectedRun]);
 
   return (
     <div className="min-h-screen bg-graphite-50 bg-grid bg-[length:24px_24px] px-4 py-6 text-graphite-900 dark:bg-graphite-900 dark:text-graphite-50">
@@ -190,7 +218,13 @@ const App = () => {
           <div className="grid gap-6">
             <ChatPanel outputDir={outputDir} llmConfig={llmConfig} />
             <MdViewer repoPath={resolvedRepoPath ?? repoUrl} outputDir={outputDir} />
-            <RunHistory runs={runHistory} activeRunId={activeRunId} />
+            <RunHistory runs={runHistory} activeRunId={activeRunId} onSelect={handleSelectRun} />
+            <RunDetail
+              run={selectedRun}
+              moduleCount={moduleGraph?.nodes?.length ?? 0}
+              lineageCount={lineageGraph?.nodes?.length ?? 0}
+              onLoadGraphs={handleLoadRunGraphs}
+            />
             <LlmSettings
               provider={llmConfig.provider}
               model={llmConfig.model}

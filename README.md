@@ -98,6 +98,20 @@ Environment:
 
 Then set `VITE_API_BASE_URL` in `ui/.env` to match the API host.
 
+### Database options
+
+The API stores run history in a database. By default it uses SQLite in `.cartography/cartography.db`.
+
+To use Postgres instead:
+
+```bash
+export CARTOGRAPHY_DB_URL=\"postgresql+psycopg://user:pass@localhost:5432/cartography\"
+```
+
+### Repo cloning cleanup
+
+If you pass a GitHub URL to the API, the repo is cloned into a temp directory. The API now deletes that temp folder after the run completes.
+
 ## Architecture (High level)
 
 **CLI pipeline**

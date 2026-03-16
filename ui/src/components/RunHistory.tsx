@@ -4,9 +4,10 @@ import type { RunResponse } from "../api/cartography";
 interface RunHistoryProps {
   runs: RunResponse[];
   activeRunId?: string | null;
+  onSelect?: (run: RunResponse) => void;
 }
 
-const RunHistory = memo(({ runs, activeRunId }: RunHistoryProps) => {
+const RunHistory = memo(({ runs, activeRunId, onSelect }: RunHistoryProps) => {
   return (
     <section className="glass rounded-2xl p-5">
       <div className="flex items-center justify-between">
@@ -29,9 +30,10 @@ const RunHistory = memo(({ runs, activeRunId }: RunHistoryProps) => {
             .reverse()
             .slice(0, 6)
             .map((run) => (
-              <div
+              <button
                 key={run.run_id}
-                className={`rounded-xl border px-4 py-3 text-xs ${
+                onClick={() => onSelect?.(run)}
+                className={`w-full rounded-xl border px-4 py-3 text-left text-xs transition hover:border-signal-500 ${
                   run.run_id === activeRunId
                     ? "border-signal-500 bg-signal-500/10"
                     : "border-graphite-200 bg-white/70 dark:border-graphite-700 dark:bg-graphite-900/60"
@@ -48,7 +50,7 @@ const RunHistory = memo(({ runs, activeRunId }: RunHistoryProps) => {
                 <div className="mt-2 text-[11px] text-graphite-500 dark:text-graphite-300">
                   Started: {new Date(run.started_at).toLocaleString()}
                 </div>
-              </div>
+              </button>
             ))
         )}
       </div>

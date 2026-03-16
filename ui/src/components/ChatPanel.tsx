@@ -22,9 +22,18 @@ const initialMessages: Message[] = [
 
 interface ChatPanelProps {
   outputDir?: string | null;
+  llmConfig: {
+    provider: string;
+    model: string;
+    fallbackProvider: string;
+    fallbackModel: string;
+    apiKey: string;
+    baseUrl: string;
+    quotaDepleted: boolean;
+  };
 }
 
-const ChatPanel = memo(({ outputDir }: ChatPanelProps) => {
+const ChatPanel = memo(({ outputDir, llmConfig }: ChatPanelProps) => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -47,7 +56,18 @@ const ChatPanel = memo(({ outputDir }: ChatPanelProps) => {
         if (!outputDir) {
           throw new Error("Run analysis first to enable chat insights.");
         }
-        const response = await api.chat({ question: userMessage.content, output_dir: outputDir });
+        const response = await api.chat({
+          question: userMessage.content,
+          output_dir: outputDir,
+          provider: llmConfig.provider,
+          model: llmConfig.model,
+          fallback_provider: llmConfig.fallbackProvider,
+          fallback_model: llmConfig.fallbackModel,
+          api_key: llmConfig.apiKey,
+          fallback_api_key: llmConfig.apiKey,
+          base_url: llmConfig.baseUrl,
+          quota_depleted: llmConfig.quotaDepleted
+        });
         const assistantMessage: Message = {
           id: `a-${Date.now()}`,
           role: "assistant",
@@ -67,7 +87,7 @@ const ChatPanel = memo(({ outputDir }: ChatPanelProps) => {
     };
 
     void submit();
-  }, [input, isSending, outputDir]);
+  }, [input, isSending, outputDir, llmConfig]);
 
   return (
     <section className="glass flex h-full flex-col rounded-2xl p-5">
@@ -77,7 +97,8 @@ const ChatPanel = memo(({ outputDir }: ChatPanelProps) => {
           <p className="text-xs text-graphite-500 dark:text-graphite-300">Conversational insights with blast radius context.</p>
         </div>
         <span className="rounded-full border border-graphite-200 px-3 py-1 text-xs text-graphite-600 dark:border-graphite-700 dark:text-graphite-200">
-          LLM: Llama 3.1
+          LLM: {llmConfig.quotaDepleted ? llmConfig.fallbackProvider : llmConfig.provider} /{" "}
+          {llmConfig.quotaDepleted ? llmConfig.fallbackModel : llmConfig.model}
         </span>
       </div>
       <div className="mt-4 flex-1 space-y-3 overflow-y-auto pr-2 scrollbar-hidden">

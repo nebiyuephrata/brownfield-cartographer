@@ -44,6 +44,12 @@ export interface ChatResponse {
   hints: string[];
 }
 
+export interface EnvUpdateResponse {
+  status: string;
+  path: string;
+  keys: string[];
+}
+
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -74,8 +80,24 @@ export const api = {
     fetchJson<MarkdownResponse>(`/markdown/onboarding?output_dir=${encodeURIComponent(outputDir)}`),
   dayOne: (outputDir: string) =>
     fetchJson<DayOneInsights>(`/insights/day-one?output_dir=${encodeURIComponent(outputDir)}`),
-  chat: (payload: { question: string; output_dir: string }) =>
+  chat: (payload: {
+    question: string;
+    output_dir: string;
+    provider?: string;
+    model?: string;
+    fallback_provider?: string;
+    fallback_model?: string;
+    api_key?: string;
+    fallback_api_key?: string;
+    base_url?: string;
+    quota_depleted?: boolean;
+  }) =>
     fetchJson<ChatResponse>("/chat", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  saveEnv: (payload: { values: Record<string, string> }) =>
+    fetchJson<EnvUpdateResponse>("/settings/env", {
       method: "POST",
       body: JSON.stringify(payload)
     })

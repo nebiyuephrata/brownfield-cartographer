@@ -11,6 +11,7 @@ import TopBar from "./components/TopBar";
 import { progressSteps as initialSteps } from "./data/mock";
 import type { GraphPayload, ProgressStep } from "./api/cartography";
 import { deriveGraphSummary } from "./api/helpers";
+import type { LlmProvider } from "./data/providers";
 
 const App = () => {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
@@ -23,6 +24,15 @@ const App = () => {
   const [moduleGraph, setModuleGraph] = useState<GraphPayload | null>(null);
   const [lineageGraph, setLineageGraph] = useState<GraphPayload | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [llmConfig, setLlmConfig] = useState({
+    provider: "ollama" as LlmProvider,
+    model: "llama3.1",
+    fallbackProvider: "openai" as LlmProvider,
+    fallbackModel: "gpt-4.1-mini",
+    quotaDepleted: false,
+    apiKey: "",
+    baseUrl: "http://localhost:11434"
+  });
 
   useEffect(() => {
     const stored = window.localStorage.getItem("cartography-theme");
@@ -108,9 +118,17 @@ const App = () => {
           </div>
 
           <div className="grid gap-6">
-            <ChatPanel outputDir={outputDir} />
+            <ChatPanel outputDir={outputDir} llmConfig={llmConfig} />
             <MdViewer repoPath={resolvedRepoPath ?? repoUrl} outputDir={outputDir} />
-            <LlmSettings />
+            <LlmSettings
+              provider={llmConfig.provider}
+              model={llmConfig.model}
+              fallbackProvider={llmConfig.fallbackProvider}
+              fallbackModel={llmConfig.fallbackModel}
+              quotaDepleted={llmConfig.quotaDepleted}
+              apiKey={llmConfig.apiKey}
+              baseUrl={llmConfig.baseUrl}
+              onChange={(next) => setLlmConfig((prev) => ({ ...prev, ...next }))}\n            />
           </div>
         </div>
         {statusMessage ? (

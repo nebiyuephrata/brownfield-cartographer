@@ -15,6 +15,7 @@ import type { LlmProvider } from "./data/providers";
 import RunHistory from "./components/RunHistory";
 import RunDetail from "./components/RunDetail";
 import BlastRadiusPanel from "./components/BlastRadiusPanel";
+import Toast, { ToastItem } from "./components/Toast";
 
 const App = () => {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
@@ -34,6 +35,15 @@ const App = () => {
   const [indexStatus, setIndexStatus] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [focusLineageNodeId, setFocusLineageNodeId] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const pushToast = useCallback((message: string, tone: ToastItem["tone"] = "error") => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setToasts((prev) => [...prev, { id, message, tone }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    }, 4000);
+  }, []);
   const [llmConfig, setLlmConfig] = useState({
     provider: "ollama" as LlmProvider,
     model: "llama3.1",
@@ -174,6 +184,7 @@ const App = () => {
       setStatusMessage(error instanceof Error ? error.message : "Failed to run analysis.");
       setStatusLabel("Failed");
       setIsRunning(false);
+      pushToast(error instanceof Error ? error.message : "Failed to run analysis.");
     }
   }, [repoUrl]);
 
@@ -197,6 +208,7 @@ const App = () => {
       setStatusMessage(`Loaded graphs for ${selectedRun.repo_path}`);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Failed to load run graphs.");
+      pushToast(error instanceof Error ? error.message : "Failed to load run graphs.");
     }
   }, [selectedRun]);
 
@@ -208,6 +220,7 @@ const App = () => {
       setIndexStatus(`Indexed ${response.indexed_chunks} chunks.`);
     } catch (error) {
       setIndexStatus(error instanceof Error ? error.message : "Indexing failed.");
+      pushToast(error instanceof Error ? error.message : "Indexing failed.");
     }
   }, [selectedRun]);
 
@@ -244,8 +257,17 @@ const App = () => {
           </div>
 
           <div className="grid gap-6">
-            <ChatPanel outputDir={outputDir} repoPath={resolvedRepoPath ?? repoUrl} llmConfig={llmConfig} />
-            <MdViewer repoPath={resolvedRepoPath ?? repoUrl} outputDir={outputDir} />
+            <ChatPanel
+              outputDir={outputDir}
+              repoPath={resolvedRepoPath ?? repoUrl}
+              llmConfig={llmConfig}
+              onError={(message) => pushToast(message)}
+            />
+            <MdViewer
+              repoPath={resolvedRepoPath ?? repoUrl}
+              outputDir={outputDir}
+              onError={(message) => pushToast(message)}
+            />
             <RunHistory runs={runHistory} activeRunId={activeRunId} onSelect={handleSelectRun} />
             <RunDetail
               run={selectedRun}
@@ -283,6 +305,7 @@ const App = () => {
             </div>
           </div>
         ) : null}
+        <Toast toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((toast) => toast.id !== id))} />
       </div>
     </div>
   );

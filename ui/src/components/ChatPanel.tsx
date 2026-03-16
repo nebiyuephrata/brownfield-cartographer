@@ -35,9 +35,10 @@ interface ChatPanelProps {
     baseUrl: string;
     quotaDepleted: boolean;
   };
+  onError?: (message: string) => void;
 }
 
-const ChatPanel = memo(({ outputDir, repoPath, llmConfig }: ChatPanelProps) => {
+const ChatPanel = memo(({ outputDir, repoPath, llmConfig, onError }: ChatPanelProps) => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -133,6 +134,7 @@ const ChatPanel = memo(({ outputDir, repoPath, llmConfig }: ChatPanelProps) => {
           source: "heuristic"
         };
         setMessages((prev) => [...prev, assistantMessage]);
+        onError?.(assistantMessage.content);
       } finally {
         setIsSending(false);
       }

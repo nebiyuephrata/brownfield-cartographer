@@ -7,9 +7,10 @@ import { sampleOnboarding, sampleReadme } from "../data/mock";
 interface MdViewerProps {
   repoPath?: string | null;
   outputDir?: string | null;
+  onError?: (message: string) => void;
 }
 
-const MdViewer = memo(({ repoPath, outputDir }: MdViewerProps) => {
+const MdViewer = memo(({ repoPath, outputDir, onError }: MdViewerProps) => {
   const [activeTab, setActiveTab] = useState<"readme" | "onboarding">("readme");
   const [content, setContent] = useState({
     readme: sampleReadme,
@@ -44,7 +45,9 @@ const MdViewer = memo(({ repoPath, outputDir }: MdViewerProps) => {
       }
       setStatus("Loaded from API.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to load markdown.");
+      const message = error instanceof Error ? error.message : "Failed to load markdown.";
+      setStatus(message);
+      onError?.(message);
     }
   }, [activeTab, outputDir, repoPath]);
 
